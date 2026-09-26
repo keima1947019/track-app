@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Trophy, Users, LayoutList, FileEdit, Printer, CloudUpload, 
   Search, Bell, UserCircle, Plus, Trash2, Zap, Medal, X, 
@@ -32,17 +32,39 @@ const mockEvents = [
   { id: 'm400-final', category: '男子', event: '400m', round: '決勝', time: '15:00', status: '準備中' },
 ];
 
-const departmentOptions = ['小学校3・4年', '小学校5・6年', '中学校', '一般', '壮年'];
-const eventsByDepartment = {
-  '小学校3・4年': ['100m', '1000m'],
-  '小学校5・6年': ['100m', '1000m'],
-  '中学校': ['100m', '200m', '400m', '800m', '1500m', '4*100mR', '走り幅跳び', '走り高跳び'],
-  '一般': ['100m', '3000m', '砲丸投げ', 'ジャベリックスロー'],
-  '壮年': ['100m', '3000m', '砲丸投げ', 'ジャベリックスロー'],
-};
+const mockLiveResults = [
+  { id: 4, lane: 4, bib: '104', name: '山田 太郎', team: '静岡陸協', time: '10.55', rank: '1', remarks: '大会新 (CR)', wind: '+1.2' },
+  { id: 6, lane: 6, bib: '106', name: '鈴木 一郎', team: '浜松クラブ', time: '10.62', rank: '2', remarks: '', wind: '+1.2' },
+  { id: 3, lane: 3, bib: '103', name: '佐藤 次郎', team: '沼津陸協', time: '10.82', rank: '3', remarks: '', wind: '+1.2' },
+  { id: 1, lane: 5, bib: '101', name: '伊藤 四郎', team: '静岡陸協', time: '11.01', rank: '4', remarks: '', wind: '+1.2' },
+];
 
-const driveBackupFileName = 'track-app-backup.json';
+const initialTrackAthletes = [
+  { id: 1, lane: 1, bib: '107', name: '渡辺 誠', team: '三島陸協', time: '', rank: '', remarks: '' },
+  { id: 2, lane: 2, bib: '102', name: '田中 三郎', team: '富士宮TC', time: '11.02', rank: '5', remarks: '' },
+  { id: 3, lane: 3, bib: '103', name: '佐藤 次郎', team: '沼津陸協', time: '10.82', rank: '3', remarks: '' },
+  { id: 4, lane: 4, bib: '104', name: '山田 太郎', team: '静岡陸協', time: '10.55', rank: '1', remarks: '大会新' },
+  { id: 5, lane: 5, bib: '106', name: '鈴木 一郎', team: '浜松クラブ', time: '10.62', rank: '2', remarks: '' },
+  { id: 6, lane: 6, bib: '101', name: '伊藤 四郎', team: '静岡陸協', time: '11.01', rank: '4', remarks: '' },
+  { id: 7, lane: 7, bib: '108', name: '小林 大介', team: '静岡大学', time: '', rank: '', remarks: '' },
+  { id: 8, lane: 8, bib: '105', name: '高橋 健太', team: '掛川AC', time: '', rank: '', remarks: '' },
+];
+
+const initialFieldAthletes = [
+  { id: 1, order: 1, bib: '201', name: '松本 隼人', team: '沼津工業高', t1: '6.95', t2: 'x', t3: '7.12', t4: '7.05', t5: '7.10', t6: 'x', best: '7.12m', rank: '1' },
+  { id: 2, order: 2, bib: '202', name: '井上 翔太', team: '静岡市立高', t1: '6.50', t2: '6.85', t3: '6.72', t4: '6.60', t5: '6.80', t6: '6.75', best: '6.85m', rank: '3' },
+  { id: 3, order: 3, bib: '203', name: '清水 健一', team: '浜松西高', t1: '7.01', t2: '6.90', t3: 'x', t4: '6.98', t5: 'x', t6: '7.00', best: '7.01m', rank: '2' },
+  { id: 4, order: 4, bib: '204', name: '岡田 龍之介', team: '藤枝明誠高', t1: '6.45', t2: '6.60', t3: '6.70', t4: '6.55', t5: '6.62', t6: '6.68', best: '6.70m', rank: '4' },
+];
+
+const driveBackupFilePrefix = 'track-app-backup-';
 let googleIdentityServicesPromise;
+
+const createDriveBackupFileName = (date = new Date()) => {
+  const pad = (value, length = 2) => String(value).padStart(length, '0');
+  const timestamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}-${pad(date.getMilliseconds(), 3)}`;
+  return `${driveBackupFilePrefix}${timestamp}.json`;
+};
 
 const loadGoogleIdentityServices = () => {
   if (window.google?.accounts?.oauth2) return Promise.resolve();
@@ -84,10 +106,7 @@ const requestDriveAccessToken = async (clientId) => {
 const requestDriveApi = async (url, accessToken, options = {}) => {
   const response = await fetch(url, {
     ...options,
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      ...options.headers,
-    },
+    headers: { Authorization: `Bearer ${accessToken}`, ...options.headers },
   });
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null);
@@ -96,11 +115,11 @@ const requestDriveApi = async (url, accessToken, options = {}) => {
   return response;
 };
 
-const findDriveBackup = async (accessToken) => {
+const findLatestDriveBackup = async (accessToken) => {
   const params = new URLSearchParams({
-    q: `name = '${driveBackupFileName}' and trashed = false`,
-    pageSize: '1',
-    orderBy: 'modifiedTime desc',
+    q: `name contains 'track-app-backup' and trashed = false`,
+    pageSize: '100',
+    orderBy: 'modifiedTime desc,name desc',
     fields: 'files(id,name,modifiedTime)',
   });
   const response = await requestDriveApi(`https://www.googleapis.com/drive/v3/files?${params}`, accessToken);
@@ -108,17 +127,13 @@ const findDriveBackup = async (accessToken) => {
   return result.files?.[0] || null;
 };
 
-const writeDriveBackup = async (accessToken, snapshot) => {
-  let file = await findDriveBackup(accessToken);
-  if (!file) {
-    const response = await requestDriveApi('https://www.googleapis.com/drive/v3/files?fields=id,name', accessToken, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: driveBackupFileName, mimeType: 'application/json' }),
-    });
-    file = await response.json();
-  }
-
+const writeDriveBackup = async (accessToken, snapshot, fileName) => {
+  const createResponse = await requestDriveApi('https://www.googleapis.com/drive/v3/files?fields=id', accessToken, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: fileName, mimeType: 'application/json' }),
+  });
+  const file = await createResponse.json();
   await requestDriveApi(`https://www.googleapis.com/upload/drive/v3/files/${file.id}?uploadType=media`, accessToken, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -126,37 +141,12 @@ const writeDriveBackup = async (accessToken, snapshot) => {
   });
 };
 
-const readDriveBackup = async (accessToken) => {
-  const file = await findDriveBackup(accessToken);
+const readLatestDriveBackup = async (accessToken) => {
+  const file = await findLatestDriveBackup(accessToken);
   if (!file) return null;
   const response = await requestDriveApi(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, accessToken);
-  return response.json();
+  return { fileName: file.name, snapshot: await response.json() };
 };
-
-const mockLiveResults = [
-  { id: 4, lane: 4, bib: '104', name: '山田 太郎', team: '静岡陸協', time: '10.55', rank: '1', remarks: '大会新 (CR)', wind: '+1.2' },
-  { id: 6, lane: 6, bib: '106', name: '鈴木 一郎', team: '浜松クラブ', time: '10.62', rank: '2', remarks: '', wind: '+1.2' },
-  { id: 3, lane: 3, bib: '103', name: '佐藤 次郎', team: '沼津陸協', time: '10.82', rank: '3', remarks: '', wind: '+1.2' },
-  { id: 1, lane: 5, bib: '101', name: '伊藤 四郎', team: '静岡陸協', time: '11.01', rank: '4', remarks: '', wind: '+1.2' },
-];
-
-const initialTrackAthletes = [
-  { id: 1, lane: 1, bib: '107', name: '渡辺 誠', team: '三島陸協', time: '', rank: '', remarks: '' },
-  { id: 2, lane: 2, bib: '102', name: '田中 三郎', team: '富士宮TC', time: '11.02', rank: '5', remarks: '' },
-  { id: 3, lane: 3, bib: '103', name: '佐藤 次郎', team: '沼津陸協', time: '10.82', rank: '3', remarks: '' },
-  { id: 4, lane: 4, bib: '104', name: '山田 太郎', team: '静岡陸協', time: '10.55', rank: '1', remarks: '大会新' },
-  { id: 5, lane: 5, bib: '106', name: '鈴木 一郎', team: '浜松クラブ', time: '10.62', rank: '2', remarks: '' },
-  { id: 6, lane: 6, bib: '101', name: '伊藤 四郎', team: '静岡陸協', time: '11.01', rank: '4', remarks: '' },
-  { id: 7, lane: 7, bib: '108', name: '小林 大介', team: '静岡大学', time: '', rank: '', remarks: '' },
-  { id: 8, lane: 8, bib: '105', name: '高橋 健太', team: '掛川AC', time: '', rank: '', remarks: '' },
-];
-
-const initialFieldAthletes = [
-  { id: 1, order: 1, bib: '201', name: '松本 隼人', team: '沼津工業高', t1: '6.95', t2: 'x', t3: '7.12', t4: '7.05', t5: '7.10', t6: 'x', best: '7.12m', rank: '1' },
-  { id: 2, order: 2, bib: '202', name: '井上 翔太', team: '静岡市立高', t1: '6.50', t2: '6.85', t3: '6.72', t4: '6.60', t5: '6.80', t6: '6.75', best: '6.85m', rank: '3' },
-  { id: 3, order: 3, bib: '203', name: '清水 健一', team: '浜松西高', t1: '7.01', t2: '6.90', t3: 'x', t4: '6.98', t5: 'x', t6: '7.00', best: '7.01m', rank: '2' },
-  { id: 4, order: 4, bib: '204', name: '岡田 龍之介', team: '藤枝明誠高', t1: '6.45', t2: '6.60', t3: '6.70', t4: '6.55', t5: '6.62', t6: '6.68', best: '6.70m', rank: '4' },
-];
 
 const parseCsv = (text) => {
   const rows = [];
@@ -200,7 +190,6 @@ const csvColumnAliases = {
   bib: ['bib', 'ナンバー', 'ゼッケン番号'],
   name: ['name', '選手氏名', '氏名'],
   team: ['team', '所属団体', '所属'],
-  department: ['department', '部門'],
   gender: ['gender', '性別'],
   event: ['event', '種目'],
   pb: ['pb', '持ちタイム', '自己ベスト'],
@@ -256,7 +245,7 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
   );
 };
 
-const TopBar = ({ onTriggerDemoNotification, globalSearch, setGlobalSearch, cloudSyncStatus, onSaveToDrive, onRestoreFromDrive, driveReady, driveMessage, setDriveMessage }) => {
+const TopBar = ({ onTriggerDemoNotification, globalSearch, setGlobalSearch, cloudSyncStatus, onSaveToDrive, onRestoreFromDrive, driveMessage, setDriveMessage }) => {
   return (
     <>
     <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6 sticky top-0 z-10 shadow-sm">
@@ -273,25 +262,18 @@ const TopBar = ({ onTriggerDemoNotification, globalSearch, setGlobalSearch, clou
       <div className="flex items-center gap-4">
         <button 
           onClick={onSaveToDrive}
-          disabled={driveReady === false || cloudSyncStatus === 'saving' || cloudSyncStatus === 'restoring'}
+          disabled={cloudSyncStatus === 'saving' || cloudSyncStatus === 'restoring'}
           className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${
             cloudSyncStatus === 'saving' || cloudSyncStatus === 'restoring' ? 'bg-blue-100 text-blue-700 animate-pulse' :
             cloudSyncStatus === 'saved' || cloudSyncStatus === 'restored' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
             cloudSyncStatus === 'error' ? 'bg-red-50 text-red-700 border border-red-200' :
             'bg-slate-100 text-slate-700 hover:bg-slate-200'
           }`}
-          title="選手エントリーと競技記録をGoogle Driveに保存"
         >
           <CloudUpload size={14} />
           {cloudSyncStatus === 'saving' ? 'Drive保存中...' : cloudSyncStatus === 'restoring' ? 'Drive読込中...' : cloudSyncStatus === 'saved' ? 'Drive保存完了' : cloudSyncStatus === 'restored' ? 'Drive復元完了' : cloudSyncStatus === 'error' ? 'Driveエラー' : 'Google Drive保存'}
         </button>
-        <button
-          onClick={onRestoreFromDrive}
-          disabled={driveReady === false || cloudSyncStatus === 'saving' || cloudSyncStatus === 'restoring'}
-          title="Google Driveから復元"
-          aria-label="Google Driveから復元"
-          className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40"
-        >
+        <button onClick={onRestoreFromDrive} disabled={cloudSyncStatus === 'saving' || cloudSyncStatus === 'restoring'} title="Google Driveから復元" aria-label="Google Driveから復元" className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-40">
           <Download size={16} />
         </button>
 
@@ -336,7 +318,7 @@ const NotificationToast = ({ message, onClose }) => (
 const EntriesInput = ({ entries, setEntries, globalSearch }) => {
   const [selectedGender, setSelectedGender] = useState('すべて');
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newAthlete, setNewAthlete] = useState({ bib: '', name: '', team: '', department: '一般', gender: '男子', event: '100m', pb: '' });
+  const [newAthlete, setNewAthlete] = useState({ bib: '', name: '', team: '', gender: '男子', event: '100m', pb: '' });
   const [csvMessage, setCsvMessage] = useState('');
   const csvInputRef = useRef(null);
 
@@ -350,91 +332,8 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
     e.preventDefault();
     if (!newAthlete.name || !newAthlete.bib) return;
     setEntries(prev => [...prev, { ...newAthlete, id: Date.now() }]);
-    setNewAthlete({ bib: '', name: '', team: '', department: '一般', gender: '男子', event: '100m', pb: '' });
+    setNewAthlete({ bib: '', name: '', team: '', gender: '男子', event: '100m', pb: '' });
     setShowAddModal(false);
-  };
-
-  const handleCsvImport = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const buffer = await file.arrayBuffer();
-      let text;
-      try {
-        text = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
-      } catch {
-        text = new TextDecoder('windows-31j').decode(buffer);
-      }
-
-      const rows = parseCsv(text);
-      if (rows.length < 2) {
-        setCsvMessage('CSVに取り込むデータがありません。');
-        return;
-      }
-
-      const headers = rows[0].map(header => header.replace(/^\uFEFF/, '').trim().toLowerCase());
-      const columnIndexes = Object.fromEntries(Object.entries(csvColumnAliases).map(([field, aliases]) => [
-        field,
-        headers.findIndex(header => aliases.map(alias => alias.toLowerCase()).includes(header)),
-      ]));
-      if (columnIndexes.bib < 0 || columnIndexes.name < 0) {
-        setCsvMessage('CSVのヘッダーに「bib（ナンバー）」と「name（選手氏名）」が必要です。');
-        return;
-      }
-
-      const knownBibs = new Set(entries.map(entry => entry.bib.trim()));
-      let duplicateCount = 0;
-      let invalidCount = 0;
-      let invalidDepartmentCount = 0;
-      let invalidEventCount = 0;
-      const importedEntries = [];
-
-      rows.slice(1).forEach((row, index) => {
-        const getValue = (field, fallback = '') => columnIndexes[field] < 0 ? fallback : (row[columnIndexes[field]] || fallback).trim();
-        const bib = getValue('bib');
-        const name = getValue('name');
-        if (!bib || !name) {
-          invalidCount += 1;
-          return;
-        }
-        if (knownBibs.has(bib)) {
-          duplicateCount += 1;
-          return;
-        }
-
-        const gender = getValue('gender', '男子');
-        const department = getValue('department', '一般');
-        if (!departmentOptions.includes(department)) {
-          invalidDepartmentCount += 1;
-          return;
-        }
-        const allowedEvents = eventsByDepartment[department];
-        const event = getValue('event', allowedEvents[0]);
-        if (!allowedEvents.includes(event)) {
-          invalidEventCount += 1;
-          return;
-        }
-        knownBibs.add(bib);
-        importedEntries.push({
-          id: `csv-${Date.now()}-${index}`,
-          bib,
-          name,
-          team: getValue('team'),
-          department,
-          gender: ['男子', '女子'].includes(gender) ? gender : '男子',
-          event,
-          pb: getValue('pb'),
-        });
-      });
-
-      if (importedEntries.length > 0) setEntries(prev => [...prev, ...importedEntries]);
-      setCsvMessage(`${importedEntries.length}名を登録しました（重複 ${duplicateCount}件、必須項目不足 ${invalidCount}件、部門不正 ${invalidDepartmentCount}件、種目不正 ${invalidEventCount}件をスキップ）。`);
-    } catch {
-      setCsvMessage('CSVを読み込めませんでした。文字コードとファイル形式を確認してください。');
-    } finally {
-      e.target.value = '';
-    }
   };
 
   return (
@@ -444,7 +343,7 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
           <h2 className="text-xl font-black text-gray-900">エントリー選手一覧・管理</h2>
           <p className="text-xs text-gray-500 mt-1">大会に登録されたすべての選手の持ちタイム(PB)および所属クラブデータの管理・新規追加</p>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
           <div className="flex bg-gray-100 p-1 rounded-lg text-xs font-semibold">
             {['すべて', '男子', '女子'].map(g => (
               <button 
@@ -456,13 +355,6 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
               </button>
             ))}
           </div>
-          <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={handleCsvImport} className="hidden" />
-          <button
-            onClick={() => csvInputRef.current?.click()}
-            className="flex items-center gap-2 border border-gray-300 bg-white text-gray-700 px-4 py-2 rounded-xl font-bold text-xs hover:bg-gray-50 transition-all"
-          >
-            <CloudUpload size={16} /> CSV一括登録
-          </button>
           <button 
             onClick={() => setShowAddModal(true)}
             className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs hover:bg-blue-700 shadow-sm transition-all"
@@ -472,12 +364,6 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
         </div>
       </div>
 
-      {csvMessage && (
-        <div role="status" className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-xl text-sm font-semibold">
-          {csvMessage}
-        </div>
-      )}
-
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         <table className="w-full text-left border-collapse">
           <thead>
@@ -485,7 +371,6 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
               <th className="py-3.5 px-6">ナンバー</th>
               <th className="py-3.5 px-6">選手氏名</th>
               <th className="py-3.5 px-6">所属団体</th>
-              <th className="py-3.5 px-6">部門</th>
               <th className="py-3.5 px-6">性別・種目</th>
               <th className="py-3.5 px-6">パーソナルベスト (PB)</th>
               <th className="py-3.5 px-6 text-center">操作</th>
@@ -497,7 +382,6 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
                 <td className="py-4 px-6 font-mono font-bold text-blue-600">{entry.bib}</td>
                 <td className="py-4 px-6 font-bold text-gray-900">{entry.name}</td>
                 <td className="py-4 px-6 text-gray-600 font-medium">{entry.team}</td>
-                <td className="py-4 px-6 text-gray-700 font-medium">{entry.department || '一般'}</td>
                 <td className="py-4 px-6">
                   <span className={`text-xs font-bold px-2 py-0.5 rounded ${entry.gender === '男子' ? 'bg-blue-50 text-blue-700' : 'bg-pink-50 text-pink-700'}`}>
                     {entry.gender} {entry.event}
@@ -548,19 +432,11 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
                 <div>
                   <label className="block text-xs font-bold text-gray-700 mb-1">メイン種目</label>
                   <select value={newAthlete.event} onChange={e => setNewAthlete({...newAthlete, event: e.target.value})} className="w-full border rounded-xl px-3 py-2 text-sm bg-white">
-                    {eventsByDepartment[newAthlete.department].map(event => <option key={event} value={event}>{event}</option>)}
+                    <option value="100m">100m</option>
+                    <option value="400m">400m</option>
+                    <option value="走幅跳">走幅跳</option>
                   </select>
                 </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">部門</label>
-                <select value={newAthlete.department} onChange={e => setNewAthlete(prev => {
-                  const department = e.target.value;
-                  const allowedEvents = eventsByDepartment[department];
-                  return { ...prev, department, event: allowedEvents.includes(prev.event) ? prev.event : allowedEvents[0] };
-                })} className="w-full border rounded-xl px-3 py-2 text-sm bg-white">
-                  {departmentOptions.map(department => <option key={department} value={department}>{department}</option>)}
-                </select>
               </div>
               <div>
                 <label className="block text-xs font-bold text-gray-700 mb-1">持ちタイム (PB)</label>
@@ -1118,11 +994,7 @@ const MobileLiveResult = () => {
 export default function App() {
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
   const [activeTab, setActiveTab] = useState('results');
-  const [entries, setEntries] = useState(initialGlobalEntries.map(entry => ({
-    ...entry,
-    department: entry.event === '走幅跳' ? '中学校' : '一般',
-    event: entry.event === '走幅跳' ? '走り幅跳び' : entry.event,
-  })));
+  const [entries, setEntries] = useState(initialGlobalEntries);
   const [trackAthletes, setTrackAthletes] = useState(initialTrackAthletes);
   const [trackWind, setTrackWind] = useState('+1.2');
   const [trackRefereeApproved, setTrackRefereeApproved] = useState(false);
@@ -1132,24 +1004,7 @@ export default function App() {
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [cloudSyncStatus, setCloudSyncStatus] = useState('idle');
-  const [driveReady, setDriveReady] = useState(false);
   const [driveMessage, setDriveMessage] = useState('');
-
-  useEffect(() => {
-    if (!googleClientId) return undefined;
-    let isMounted = true;
-    loadGoogleIdentityServices()
-      .then(() => {
-        if (isMounted) setDriveReady(true);
-      })
-      .catch(error => {
-        if (isMounted) {
-          setCloudSyncStatus('error');
-          setDriveMessage(error.message);
-        }
-      });
-    return () => { isMounted = false; };
-  }, [googleClientId]);
 
   const triggerAwardNotification = (eventName) => {
     setToastMessage(`${eventName} の公式記録確定から20分が経過しました。表彰式のアナウンスおよび賞状印刷の準備を行ってください。`);
@@ -1164,7 +1019,7 @@ export default function App() {
   const handleDriveSave = async () => {
     if (!googleClientId) {
       setCloudSyncStatus('error');
-      setDriveMessage('Google Drive保存にはOAuth Client IDの設定が必要です。設定手順は GOOGLE_DRIVE_SETUP.md を確認してください。');
+      setDriveMessage('Google Drive保存にはOAuth Client IDの設定が必要です。');
       return;
     }
 
@@ -1172,6 +1027,7 @@ export default function App() {
     setDriveMessage('');
     try {
       const accessToken = await requestDriveAccessToken(googleClientId);
+      const fileName = createDriveBackupFileName();
       await writeDriveBackup(accessToken, {
         format: 'track-app-backup',
         version: 1,
@@ -1179,9 +1035,9 @@ export default function App() {
         entries,
         track: { athletes: trackAthletes, wind: trackWind, refereeApproved: trackRefereeApproved },
         field: { athletes: fieldAthletes, wind: fieldWind },
-      });
+      }, fileName);
       setCloudSyncStatus('saved');
-      setDriveMessage('選手エントリーとトラック・フィールド記録をGoogle Driveに保存しました。');
+      setDriveMessage(`${fileName} としてGoogle Driveに新しいバックアップを保存しました。`);
     } catch (error) {
       setCloudSyncStatus('error');
       setDriveMessage(`Google Driveへの保存に失敗しました: ${error.message}`);
@@ -1191,25 +1047,24 @@ export default function App() {
   const handleDriveRestore = async () => {
     if (!googleClientId) {
       setCloudSyncStatus('error');
-      setDriveMessage('Google Driveからの復元にはOAuth Client IDの設定が必要です。設定手順は GOOGLE_DRIVE_SETUP.md を確認してください。');
+      setDriveMessage('Google Driveからの復元にはOAuth Client IDの設定が必要です。');
       return;
     }
-    if (!window.confirm('Google Driveのバックアップで現在の選手・競技データを置き換えます。続行しますか？')) return;
+    if (!window.confirm('最新のGoogle Driveバックアップで現在の選手・競技データを置き換えます。続行しますか？')) return;
 
     setCloudSyncStatus('restoring');
     setDriveMessage('');
     try {
       const accessToken = await requestDriveAccessToken(googleClientId);
-      const snapshot = await readDriveBackup(accessToken);
-      if (!snapshot) throw new Error('バックアップが見つかりません。先にGoogle Driveへ保存してください。');
+      const backup = await readLatestDriveBackup(accessToken);
+      if (!backup) throw new Error('Google Driveにバックアップがありません。');
+      const snapshot = backup.snapshot;
       if (
         snapshot.format !== 'track-app-backup' || snapshot.version !== 1 ||
         !Array.isArray(snapshot.entries) || !Array.isArray(snapshot.track?.athletes) ||
         !Array.isArray(snapshot.field?.athletes) || typeof snapshot.track.wind !== 'string' ||
         typeof snapshot.field.wind !== 'string'
-      ) {
-        throw new Error('バックアップの形式が正しくありません。');
-      }
+      ) throw new Error('バックアップの形式が正しくありません。');
 
       setEntries(snapshot.entries);
       setTrackAthletes(snapshot.track.athletes);
@@ -1218,7 +1073,7 @@ export default function App() {
       setFieldAthletes(snapshot.field.athletes);
       setFieldWind(snapshot.field.wind);
       setCloudSyncStatus('restored');
-      setDriveMessage('選手エントリーとトラック・フィールド記録をGoogle Driveから復元しました。');
+      setDriveMessage(`${backup.fileName} から最新データを復元しました。`);
     } catch (error) {
       setCloudSyncStatus('error');
       setDriveMessage(`Google Driveからの復元に失敗しました: ${error.message}`);
@@ -1256,7 +1111,6 @@ export default function App() {
           cloudSyncStatus={cloudSyncStatus}
           onSaveToDrive={handleDriveSave}
           onRestoreFromDrive={handleDriveRestore}
-          driveReady={googleClientId ? driveReady : null}
           driveMessage={driveMessage}
           setDriveMessage={setDriveMessage}
         />
