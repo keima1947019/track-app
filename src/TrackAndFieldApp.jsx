@@ -364,6 +364,74 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
     setShowAddModal(false);
   };
 
+  const handleCsvImport = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const buffer = await file.arrayBuffer();
+      let text;
+      try {
+        text = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+      } catch {
+        text = new TextDecoder('windows-31j').decode(buffer);
+      }
+
+      const rows = parseCsv(text);
+      if (rows.length < 2) {
+        setCsvMessage('CSVに取り込むデータがありません。');
+        return;
+      }
+
+      const headers = rows[0].map(header => header.replace(/^\uFEFF/, '').trim().toLowerCase());
+      const columnIndexes = Object.fromEntries(Object.entries(csvColumnAliases).map(([field, aliases]) => [
+        field,
+        headers.findIndex(header => aliases.map(alias => alias.toLowerCase()).includes(header)),
+      ]));
+      if (columnIndexes.bib < 0 || columnIndexes.name < 0) {
+        setCsvMessage('CSVのヘッダーに「bib（ナンバー）」と「name（選手氏名）」が必要です。');
+        return;
+      }
+
+      const knownBibs = new Set(entries.map(entry => String(entry.bib).trim()));
+      const importedEntries = [];
+      let duplicateCount = 0;
+      let invalidCount = 0;
+      rows.slice(1).forEach((row, index) => {
+        const getValue = (field, fallback = '') => columnIndexes[field] < 0 ? fallback : (row[columnIndexes[field]] || fallback).trim();
+        const bib = getValue('bib');
+        const name = getValue('name');
+        if (!bib || !name) {
+          invalidCount += 1;
+          return;
+        }
+        if (knownBibs.has(bib)) {
+          duplicateCount += 1;
+          return;
+        }
+
+        knownBibs.add(bib);
+        const gender = getValue('gender', '男子');
+        importedEntries.push({
+          id: `csv-${Date.now()}-${index}`,
+          bib,
+          name,
+          team: getValue('team'),
+          gender: ['男子', '女子'].includes(gender) ? gender : '男子',
+          event: getValue('event', '100m'),
+          pb: getValue('pb'),
+        });
+      });
+
+      if (importedEntries.length > 0) setEntries(previous => [...previous, ...importedEntries]);
+      setCsvMessage(`${importedEntries.length}名を登録しました（重複 ${duplicateCount}件、必須項目不足 ${invalidCount}件をスキップ）。`);
+    } catch {
+      setCsvMessage('CSVを読み込めませんでした。文字コードとファイル形式を確認してください。');
+    } finally {
+      event.target.value = '';
+    }
+  };
+
   return (
     <div className="p-6 space-y-6 animate-fade-in max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
@@ -383,6 +451,13 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
               </button>
             ))}
           </div>
+          <input ref={csvInputRef} type="file" accept=".csv,text/csv" onChange={handleCsvImport} className="hidden" />
+          <button
+            onClick={() => csvInputRef.current?.click()}
+            className="flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 text-xs font-bold text-gray-700 transition-all hover:bg-gray-50"
+          >
+            <CloudUpload size={16} /> CSV一括登録
+          </button>
           <button 
             onClick={() => setShowAddModal(true)}
             className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-xs hover:bg-blue-700 shadow-sm transition-all"
@@ -391,6 +466,12 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
           </button>
         </div>
       </div>
+
+      {csvMessage && (
+        <div role="status" className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-800">
+          {csvMessage}
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         <table className="w-full text-left border-collapse">
