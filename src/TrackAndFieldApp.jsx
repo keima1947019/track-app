@@ -57,6 +57,11 @@ const initialFieldAthletes = [
   { id: 4, order: 4, bib: '204', name: '岡田 龍之介', team: '藤枝明誠高', t1: '6.45', t2: '6.60', t3: '6.70', t4: '6.55', t5: '6.62', t6: '6.68', best: '6.70m', rank: '4' },
 ];
 
+const timeFinalEvents = ['1000m', '1500m', '3000m'];
+const initialTimeFinalResults = Object.fromEntries(timeFinalEvents.map(event => [event, [
+  { id: `${event}-arrival-1`, bib: '', time: '' },
+]]));
+
 const driveBackupFilePrefix = 'track-app-backup-';
 let googleIdentityServicesPromise;
 
@@ -457,6 +462,9 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
                   <select value={newAthlete.event} onChange={e => setNewAthlete({...newAthlete, event: e.target.value})} className="w-full border rounded-xl px-3 py-2 text-sm bg-white">
                     <option value="100m">100m</option>
                     <option value="400m">400m</option>
+                    <option value="1000m">1000m</option>
+                    <option value="1500m">1500m</option>
+                    <option value="3000m">3000m</option>
                     <option value="走幅跳">走幅跳</option>
                   </select>
                 </div>
@@ -556,9 +564,158 @@ const DrawsSimulation = ({ entries }) => {
   );
 };
 
-const ResultsInput = ({ onRecordSaved, athletes, setAthletes, wind, setWind, refereeApproved, setRefereeApproved }) => {
+const TimeFinalResultsInput = ({ entries, resultsByEvent, setResultsByEvent, onRecordSaved, onBack }) => {
+  const [selectedEvent, setSelectedEvent] = useState(timeFinalEvents[0]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const rows = resultsByEvent[selectedEvent] || [];
+  const athleteByBib = new Map(entries.map(entry => [String(entry.bib).trim(), entry]));
+
+  const updateRows = (updater) => {
+    setResultsByEvent(previous => ({
+      ...previous,
+      [selectedEvent]: typeof updater === 'function' ? updater(previous[selectedEvent] || []) : updater,
+    }));
+  };
+
+  const handleRowChange = (id, field, value) => {
+    updateRows(previous => previous.map(row => row.id === id ? { ...row, [field]: value } : row));
+  };
+
+  const handleAddRow = () => {
+    updateRows(previous => [...previous, { id: `${selectedEvent}-${Date.now()}`, bib: '', time: '' }]);
+  };
+
+  const handleSave = () => {
+    const enteredRows = rows.filter(row => row.bib.trim() || row.time.trim());
+    if (enteredRows.length === 0) {
+      setSaveMessage('エントリー番号と記録を入力してください。');
+      return;
+    }
+    if (enteredRows.some(row => !row.bib.trim() || !row.time.trim())) {
+      setSaveMessage('入力途中の行があります。番号と記録を両方入力してください。');
+      return;
+    }
+    if (enteredRows.some(row => !athleteByBib.has(row.bib.trim()))) {
+      setSaveMessage('未登録のエントリー番号があります。選手エントリーを確認してください。');
+      return;
+    }
+    if (new Set(enteredRows.map(row => row.bib.trim())).size !== enteredRows.length) {
+      setSaveMessage('同じエントリー番号が複数あります。番号を確認してください。');
+      return;
+    }
+
+    setSaveMessage('');
+    setIsSaving(true);
+    setTimeout(() => {
+      setIsSaving(false);
+      onRecordSaved?.(`${selectedEvent} タイム決勝`);
+    }, 500);
+  };
+
+  return (
+    <div className="p-6 space-y-6 animate-fade-in max-w-7xl mx-auto">
+      <div className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between">
+        <div className="flex items-center gap-3">
+          <button onClick={onBack} aria-label="トラック記録入力へ戻る" className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-800">
+            <ArrowLeft size={18} />
+          </button>
+          <div>
+            <span className="text-xs font-bold text-blue-700">タイム決勝・到着順入力</span>
+            <h2 className="mt-1 text-xl font-black text-gray-900">{selectedEvent} 記録入力</h2>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <select value={selectedEvent} onChange={event => { setSelectedEvent(event.target.value); setSaveMessage(''); }} className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold">
+            {timeFinalEvents.map(event => <option key={event} value={event}>{event}</option>)}
+          </select>
+          <button onClick={handleAddRow} className="flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50">
+            <Plus size={15} /> 行を追加
+          </button>
+          <button onClick={handleSave} disabled={isSaving} className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50">
+            <CloudUpload size={15} /> {isSaving ? '確定中...' : '記録を確定'}
+          </button>
+        </div>
+      </div>
+
+      {saveMessage && <div role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">{saveMessage}</div>}
+
+      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <div className="border-b border-gray-200 bg-gray-50 px-5 py-3 text-xs font-semibold text-gray-600">
+          行の上から到着順です。エントリー番号を入力すると選手情報を表示します。
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] border-collapse text-left">
+            <thead>
+              <tr className="border-b border-gray-200 text-xs font-bold text-gray-500">
+                <th className="w-24 px-5 py-3 text-center">到着順</th>
+                <th className="w-48 px-5 py-3">エントリー番号</th>
+                <th className="px-5 py-3">選手氏名 / 所属</th>
+                <th className="w-56 px-5 py-3">記録</th>
+                <th className="w-20 px-5 py-3 text-center">操作</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 text-sm">
+              {rows.map((row, index) => {
+                const athlete = athleteByBib.get(row.bib.trim());
+                const duplicate = Boolean(row.bib.trim()) && rows.slice(0, index).some(previous => previous.bib.trim() === row.bib.trim());
+                return (
+                  <tr key={row.id} className="hover:bg-blue-50/30">
+                    <td className="px-5 py-3 text-center font-mono font-bold text-gray-700">{index + 1}</td>
+                    <td className="px-5 py-3">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={row.bib}
+                        onChange={event => handleRowChange(row.id, 'bib', event.target.value)}
+                        placeholder="例: 101"
+                        aria-label={`${index + 1}着のエントリー番号`}
+                        className={`w-full rounded-lg border px-3 py-2 font-mono font-bold focus:outline-none focus:ring-2 ${duplicate ? 'border-red-300 focus:ring-red-400' : 'border-gray-300 focus:ring-blue-500'}`}
+                      />
+                    </td>
+                    <td className="px-5 py-3">
+                      {athlete ? (
+                        <div>
+                          <div className="font-bold text-gray-900">{athlete.name}</div>
+                          <div className="mt-0.5 text-xs text-gray-500">{athlete.team} ・ {athlete.gender}</div>
+                          {duplicate && <span className="mt-1 block text-xs font-bold text-red-600">番号重複</span>}
+                        </div>
+                      ) : row.bib.trim() ? (
+                        <span className="text-xs font-semibold text-red-600">該当する選手がいません</span>
+                      ) : (
+                        <span className="text-sm text-gray-400">番号入力後に表示</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3">
+                      <input
+                        type="text"
+                        value={row.time}
+                        onChange={event => handleRowChange(row.id, 'time', event.target.value)}
+                        placeholder="例: 3:00.25"
+                        aria-label={`${index + 1}着の記録`}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </td>
+                    <td className="px-5 py-3 text-center">
+                      <button onClick={() => updateRows(previous => previous.filter(item => item.id !== row.id))} aria-label={`${index + 1}着の行を削除`} className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600">
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ResultsInput = ({ onRecordSaved, athletes, setAthletes, wind, setWind, refereeApproved, setRefereeApproved, entries, timeFinalResults, setTimeFinalResults }) => {
   const [isSaving, setIsSaving] = useState(false);
   const [isAutoImported, setIsAutoImported] = useState(false);
+  const [inputMode, setInputMode] = useState('lanes');
 
   const handleInputChange = (id, field, value) => {
     setAthletes(prev => prev.map(a => a.id === id ? { ...a, [field]: value } : a));
@@ -591,7 +748,9 @@ const ResultsInput = ({ onRecordSaved, athletes, setAthletes, wind, setWind, ref
     }, 600);
   };
 
-  return (
+  return inputMode === 'timeFinal' ? (
+    <TimeFinalResultsInput entries={entries} resultsByEvent={timeFinalResults} setResultsByEvent={setTimeFinalResults} onRecordSaved={onRecordSaved} onBack={() => setInputMode('lanes')} />
+  ) : (
     <div className="p-6 space-y-6 animate-fade-in max-w-7xl mx-auto">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
         <div>
@@ -599,6 +758,9 @@ const ResultsInput = ({ onRecordSaved, athletes, setAthletes, wind, setWind, ref
           <h2 className="text-xl font-black text-gray-900 mt-1">男子 100m 決勝 (記録入力コンソール)</h2>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
+          <button onClick={() => setInputMode('timeFinal')} className="flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">
+            <Clock size={14} /> タイム決勝入力
+          </button>
           <button 
             onClick={handleFinishLynxAutoImport}
             className="flex items-center gap-1.5 bg-emerald-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold hover:bg-emerald-700 shadow-sm transition-all"
