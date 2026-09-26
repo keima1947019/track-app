@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { 
   Trophy, Users, LayoutList, FileEdit, Printer, CloudUpload, 
   Search, Bell, UserCircle, Plus, Trash2, Zap, Medal, X, 
