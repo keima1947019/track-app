@@ -1269,6 +1269,7 @@ export default function App() {
   const [trackRefereeApproved, setTrackRefereeApproved] = useState(false);
   const [fieldAthletes, setFieldAthletes] = useState(initialFieldAthletes);
   const [fieldWind, setFieldWind] = useState('+0.5');
+  const [timeFinalResults, setTimeFinalResults] = useState(initialTimeFinalResults);
   const [globalSearch, setGlobalSearch] = useState('');
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
@@ -1329,6 +1330,7 @@ export default function App() {
         entries,
         track: { athletes: trackAthletes, wind: trackWind, refereeApproved: trackRefereeApproved },
         field: { athletes: fieldAthletes, wind: fieldWind },
+        timeFinalResults,
       }, fileName);
       setCloudSyncStatus('saved');
       setDriveMessage(`${fileName} としてGoogle Driveに新しいバックアップを保存しました。`);
@@ -1366,6 +1368,7 @@ export default function App() {
       setTrackRefereeApproved(Boolean(snapshot.track.refereeApproved));
       setFieldAthletes(snapshot.field.athletes);
       setFieldWind(snapshot.field.wind);
+      setTimeFinalResults(snapshot.timeFinalResults && typeof snapshot.timeFinalResults === 'object' ? snapshot.timeFinalResults : initialTimeFinalResults);
       setCloudSyncStatus('restored');
       setDriveMessage(`${backup.fileName} から最新データを復元しました。`);
     } catch (error) {
@@ -1418,7 +1421,7 @@ export default function App() {
         <main className="flex-1 overflow-y-auto bg-slate-50/50">
           {activeTab === 'entries' && <EntriesInput entries={entries} setEntries={setEntries} globalSearch={globalSearch} />}
           {activeTab === 'program' && <DrawsSimulation entries={entries} />}
-          {activeTab === 'results' && <ResultsInput onRecordSaved={handleRecordSaved} athletes={trackAthletes} setAthletes={setTrackAthletes} wind={trackWind} setWind={setTrackWind} refereeApproved={trackRefereeApproved} setRefereeApproved={setTrackRefereeApproved} />}
+          {activeTab === 'results' && <ResultsInput onRecordSaved={handleRecordSaved} athletes={trackAthletes} setAthletes={setTrackAthletes} wind={trackWind} setWind={setTrackWind} refereeApproved={trackRefereeApproved} setRefereeApproved={setTrackRefereeApproved} entries={entries} timeFinalResults={timeFinalResults} setTimeFinalResults={setTimeFinalResults} />}
           {activeTab === 'field' && <FieldEventManagement onRecordSaved={handleRecordSaved} fieldAthletes={fieldAthletes} setFieldAthletes={setFieldAthletes} wind={fieldWind} setWind={setFieldWind} />}
           {activeTab === 'analytics' && <TeamAnalytics />}
           {activeTab === 'print' && <BatchPrintCenter />}
