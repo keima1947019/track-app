@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { 
   Trophy, Users, LayoutList, FileEdit, Printer, CloudUpload, 
   Search, Bell, UserCircle, Plus, Trash2, Zap, Medal, X, 
@@ -61,6 +61,17 @@ const timeFinalEvents = ['1000m', '1500m', '3000m'];
 const initialTimeFinalResults = Object.fromEntries(timeFinalEvents.map(event => [event, [
   { id: `${event}-arrival-1`, bib: '', time: '' },
 ]]));
+const localAppDataStorageKey = 'track-app-data-v1';
+const googleAccessTokenStorageKey = 'track-app-google-access-token';
+
+const loadLocalAppData = () => {
+  try {
+    const data = JSON.parse(window.localStorage.getItem(localAppDataStorageKey) || '{}');
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+  } catch {
+    return {};
+  }
+};
 
 const driveBackupFilePrefix = 'track-app-backup-';
 let googleIdentityServicesPromise;
@@ -1259,22 +1270,71 @@ const MobileLiveResult = () => {
 
 export default function App() {
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+  const [localAppData] = useState(loadLocalAppData);
   const [googleUser, setGoogleUser] = useState(null);
+  const [googleAccessToken, setGoogleAccessToken] = useState('');
+  const [isRestoringSession, setIsRestoringSession] = useState(true);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [authError, setAuthError] = useState('');
   const [activeTab, setActiveTab] = useState('results');
-  const [entries, setEntries] = useState(initialGlobalEntries);
-  const [trackAthletes, setTrackAthletes] = useState(initialTrackAthletes);
-  const [trackWind, setTrackWind] = useState('+1.2');
-  const [trackRefereeApproved, setTrackRefereeApproved] = useState(false);
-  const [fieldAthletes, setFieldAthletes] = useState(initialFieldAthletes);
-  const [fieldWind, setFieldWind] = useState('+0.5');
-  const [timeFinalResults, setTimeFinalResults] = useState(initialTimeFinalResults);
+  const [entries, setEntries] = useState(() => Array.isArray(localAppData.entries) ? localAppData.entries : initialGlobalEntries);
+  const [trackAthletes, setTrackAthletes] = useState(() => Array.isArray(localAppData.trackAthletes) ? localAppData.trackAthletes : initialTrackAthletes);
+  const [trackWind, setTrackWind] = useState(() => typeof localAppData.trackWind === 'string' ? localAppData.trackWind : '+1.2');
+  const [trackRefereeApproved, setTrackRefereeApproved] = useState(() => Boolean(localAppData.trackRefereeApproved));
+  const [fieldAthletes, setFieldAthletes] = useState(() => Array.isArray(localAppData.fieldAthletes) ? localAppData.fieldAthletes : initialFieldAthletes);
+  const [fieldWind, setFieldWind] = useState(() => typeof localAppData.fieldWind === 'string' ? localAppData.fieldWind : '+0.5');
+  const [timeFinalResults, setTimeFinalResults] = useState(() => localAppData.timeFinalResults && typeof localAppData.timeFinalResults === 'object' ? localAppData.timeFinalResults : initialTimeFinalResults);
   const [globalSearch, setGlobalSearch] = useState('');
   const [showToast, setShowToast] = useState(false);
   const [toastMessage, setToastMessage] = useState("");
   const [cloudSyncStatus, setCloudSyncStatus] = useState('idle');
   const [driveMessage, setDriveMessage] = useState('');
+
+  useEffect(() => {
+    let isActive = true;
+    const accessToken = window.sessionStorage.getItem(googleAccessTokenStorageKey);
+    if (!accessToken) {
+      setIsRestoringSession(false);
+      return () => { isActive = false; };
+    }
+
+    fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    })
+      .then(response => {
+        if (!response.ok) throw new Error('Google session expired');
+        return response.json();
+      })
+      .then(profile => {
+        if (!isActive) return;
+        setGoogleAccessToken(accessToken);
+        setGoogleUser(profile);
+      })
+      .catch(() => {
+        window.sessionStorage.removeItem(googleAccessTokenStorageKey);
+      })
+      .finally(() => {
+        if (isActive) setIsRestoringSession(false);
+      });
+
+    return () => { isActive = false; };
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(localAppDataStorageKey, JSON.stringify({
+        entries,
+        trackAthletes,
+        trackWind,
+        trackRefereeApproved,
+        fieldAthletes,
+        fieldWind,
+        timeFinalResults,
+      }));
+    } catch (error) {
+      console.error('ローカル保存に失敗しました。', error);
+    }
+  }, [entries, trackAthletes, trackWind, trackRefereeApproved, fieldAthletes, fieldWind, timeFinalResults]);
 
   const handleGoogleSignIn = async () => {
     if (!googleClientId) {
@@ -1289,6 +1349,8 @@ export default function App() {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (!response.ok) throw new Error('Googleアカウント情報を取得できませんでした。');
+      window.sessionStorage.setItem(googleAccessTokenStorageKey, accessToken);
+      setGoogleAccessToken(accessToken);
       setGoogleUser(await response.json());
     } catch (error) {
       setAuthError(`Google認証に失敗しました: ${error.message}`);
@@ -1298,7 +1360,10 @@ export default function App() {
   };
 
   const handleSignOut = () => {
-    if (window.confirm('ログアウトしますか？保存していない変更は破棄されます。')) window.location.reload();
+    if (!window.confirm('ログアウトしますか？')) return;
+    window.sessionStorage.removeItem(googleAccessTokenStorageKey);
+    setGoogleAccessToken('');
+    setGoogleUser(null);
   };
 
   const triggerAwardNotification = (eventName) => {
@@ -1376,6 +1441,10 @@ export default function App() {
       setDriveMessage(`Google Driveからの復元に失敗しました: ${error.message}`);
     }
   };
+
+  if (isRestoringSession) {
+    return <main className="flex min-h-screen items-center justify-center bg-slate-100 text-sm font-semibold text-slate-600">ログイン状態を確認中...</main>;
+  }
 
   if (!googleUser) {
     return <GoogleLoginScreen clientId={googleClientId} isSigningIn={isSigningIn} errorMessage={authError} onSignIn={handleGoogleSignIn} />;

@@ -58,6 +58,8 @@ docker run -d --name track-app -p 8081:80 track-app
 
 アプリを開くと、Google OAuthでログインするまで大会管理画面は表示されません。OAuth同意画面ではアカウント識別用の`openid`・`email`・`profile`と、バックアップ用の`drive.file`スコープを使用します。
 
+ログイン中のアクセストークンは現在のタブの`sessionStorage`に保持し、ページ更新時にはGoogleへ有効性を確認します。選手エントリー、トラック・フィールド記録、タイム決勝記録は同じブラウザーの`localStorage`へ自動保存されます。別の端末やブラウザーとの共有にはGoogle Driveバックアップを使用してください。
+
 Google Driveへのバックアップには、Google CloudでDrive APIを有効化し、Webアプリケーション用のOAuth Client IDを設定する必要があります。Client IDはビルド時に指定します。
 
 ```powershell
