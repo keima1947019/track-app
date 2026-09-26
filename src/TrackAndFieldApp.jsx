@@ -721,7 +721,7 @@ const DrawsSimulation = ({ entries, setEntries }) => {
   );
 };
 
-const TimeFinalResultsInput = ({ entries, resultsByEvent, setResultsByEvent, onRecordSaved }) => {
+const TimeFinalResultsInput = ({ entries, resultsByEvent, setResultsByEvent, onRecordSaved, wind, setWind, refereeApproved, setRefereeApproved }) => {
   const eventOptions = getTrackEvents(entries);
   const defaultEvent = eventOptions.includes('100m') ? '100m' : eventOptions[0] || '100m';
   const [selectedEvent, setSelectedEvent] = useState(defaultEvent);
@@ -795,6 +795,10 @@ const TimeFinalResultsInput = ({ entries, resultsByEvent, setResultsByEvent, onR
       setSaveMessage('同じ番号が複数あります。番号を確認してください。');
       return;
     }
+    if (!refereeApproved) {
+      setSaveMessage('記録を確定する前に審判長の承認署名を行ってください。');
+      return;
+    }
 
     setSaveMessage('');
     setIsSaving(true);
@@ -829,6 +833,11 @@ const TimeFinalResultsInput = ({ entries, resultsByEvent, setResultsByEvent, onR
           {!isLongDistance && <select value={String(activeHeat)} onChange={event => { setSelectedHeat(event.target.value); setSaveMessage(''); }} aria-label="組" className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold">
             {heatOptions.map(heat => <option key={heat} value={heat}>{heat}組</option>)}
           </select>}
+          <label className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-bold text-gray-600">
+            風速
+            <input type="text" value={wind} onChange={event => setWind(event.target.value)} aria-label="風速" className="w-16 rounded-lg border border-gray-300 bg-white px-2 py-1 text-center font-mono" />
+            m/s
+          </label>
           <button onClick={handleAddRow} className="flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50">
             <Plus size={15} /> 行を追加
           </button>
@@ -890,12 +899,24 @@ const TimeFinalResultsInput = ({ entries, resultsByEvent, setResultsByEvent, onR
           </table>
         </div>
       </div>
+      <div className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-slate-50 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <ShieldCheck size={22} className={refereeApproved ? 'text-emerald-600' : 'text-gray-400'} />
+          <div>
+            <h3 className="text-xs font-bold text-gray-900">審判長デジタル承認署名</h3>
+            <p className="text-[11px] text-gray-500">記録確定には審判長の承認が必要です</p>
+          </div>
+        </div>
+        <button onClick={() => setRefereeApproved(!refereeApproved)} className={`rounded-xl px-4 py-2 text-xs font-bold shadow-sm ${refereeApproved ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'border border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`}>
+          {refereeApproved ? '承認済み（署名完了）' : '審判長署名を行う'}
+        </button>
+      </div>
     </div>
   );
 };
 
-const ResultsInput = ({ onRecordSaved, entries, timeFinalResults, setTimeFinalResults }) => (
-  <TimeFinalResultsInput entries={entries} resultsByEvent={timeFinalResults} setResultsByEvent={setTimeFinalResults} onRecordSaved={onRecordSaved} />
+const ResultsInput = ({ onRecordSaved, entries, timeFinalResults, setTimeFinalResults, wind, setWind, refereeApproved, setRefereeApproved }) => (
+  <TimeFinalResultsInput entries={entries} resultsByEvent={timeFinalResults} setResultsByEvent={setTimeFinalResults} onRecordSaved={onRecordSaved} wind={wind} setWind={setWind} refereeApproved={refereeApproved} setRefereeApproved={setRefereeApproved} />
 );
 
 const FieldEventManagement = ({ onRecordSaved, fieldAthletes, setFieldAthletes, wind, setWind }) => {
@@ -1435,7 +1456,7 @@ export default function App() {
         <main className="flex-1 overflow-y-auto bg-slate-50/50">
           {activeTab === 'entries' && <EntriesInput entries={entries} setEntries={setEntries} globalSearch={globalSearch} />}
           {activeTab === 'program' && <DrawsSimulation entries={entries} setEntries={setEntries} />}
-          {activeTab === 'results' && <ResultsInput onRecordSaved={handleRecordSaved} entries={entries} timeFinalResults={timeFinalResults} setTimeFinalResults={setTimeFinalResults} />}
+          {activeTab === 'results' && <ResultsInput onRecordSaved={handleRecordSaved} entries={entries} timeFinalResults={timeFinalResults} setTimeFinalResults={setTimeFinalResults} wind={trackWind} setWind={setTrackWind} refereeApproved={trackRefereeApproved} setRefereeApproved={setTrackRefereeApproved} />}
           {activeTab === 'field' && <FieldEventManagement onRecordSaved={handleRecordSaved} fieldAthletes={fieldAthletes} setFieldAthletes={setFieldAthletes} wind={fieldWind} setWind={setFieldWind} />}
           {activeTab === 'analytics' && <TeamAnalytics />}
           {activeTab === 'print' && <BatchPrintCenter />}

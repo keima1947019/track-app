@@ -1,0 +1,25 @@
+# Reactでwebアプリ構築
+
+# package.jsonが生成される
+npm init -y
+
+npm install react react-dom lucide-react
+npm install -D vite @vitejs/plugin-react
+npm run build
+docker build --no-cache -t track-app .
+docker run -d -p 8081:80 --name track-app track-app
+
+# nodeプロジェクト再構築の前にdistディレクトリを削除する
+rm -rf dist
+npm run build
+
+# コード修正後のコンテナ再起動
+docker restart track-app 
+
+
+
+# 重複登録除外の仕組み
+重複判定はゼッケン番号（bib）だけです。取り込み開始時に、登録済み選手のゼッケンを Set に入れます。TrackAndFieldApp.jsx:253
+CSVの各行では、まずゼッケンと氏名が空なら必須項目不足としてスキップします。ゼッケンが Set にすでにあれば重複としてスキップし、なければ Set に追加して登録対象にします。そのため、同じCSV内でゼッケンが重複している場合も、先に現れた行だけが登録されます。
+氏名や所属が同じでも、ゼッケンが異なれば重複扱いにはなりません。登録済みの選手を上書きせず、新規分だけ一覧に追加する
+
