@@ -61,6 +61,36 @@ const timeFinalEvents = ['1000m', '1500m', '3000m'];
 const initialTimeFinalResults = Object.fromEntries(timeFinalEvents.map(event => [event, [
   { id: `${event}-arrival-1`, bib: '', time: '' },
 ]]));
+const fieldEventNames = new Set(['走幅跳', '走り幅跳び', '走高跳', '走り高跳び', '棒高跳', '砲丸投げ', '円盤投げ', 'ハンマー投げ', 'やり投げ', 'ジャベリックスロー']);
+
+const getTrackEvents = (entries) => [...new Set(entries.map(entry => entry.event).filter(event => event && !fieldEventNames.has(event)))].sort((first, second) => first.localeCompare(second, 'en', { numeric: true }));
+
+const getEntryHeat = (entry) => {
+  const heat = Number.parseInt(entry.heat, 10);
+  return Number.isFinite(heat) && heat > 0 ? heat : 1;
+};
+
+const isLongDistanceEvent = (event) => {
+  const distance = Number(event.match(/^(\d+)m$/i)?.[1]);
+  return Number.isFinite(distance) && distance >= 1000;
+};
+
+const assignMissingEventEntryNumbers = (entries) => {
+  const nextNumbers = new Map();
+  return entries.map(entry => {
+    if (!isLongDistanceEvent(entry.event)) return entry;
+    const key = `${entry.event}:${entry.gender}`;
+    const existingNumber = Number(entry.eventEntryNumber);
+    if (Number.isInteger(existingNumber) && existingNumber > 0) {
+      nextNumbers.set(key, Math.max(nextNumbers.get(key) || 0, existingNumber));
+      return entry;
+    }
+    const eventEntryNumber = (nextNumbers.get(key) || 0) + 1;
+    nextNumbers.set(key, eventEntryNumber);
+    return { ...entry, eventEntryNumber };
+  });
+};
+
 const localAppDataStorageKey = 'track-app-data-v1';
 const googleAccessTokenStorageKey = 'track-app-google-access-token';
 
@@ -370,7 +400,7 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
   const handleAddSubmit = (e) => {
     e.preventDefault();
     if (!newAthlete.name || !newAthlete.bib) return;
-    setEntries(prev => [...prev, { ...newAthlete, id: Date.now() }]);
+    setEntries(prev => assignMissingEventEntryNumbers([...prev, { ...newAthlete, id: Date.now() }]));
     setNewAthlete({ bib: '', name: '', team: '', gender: '男子', event: '100m', pb: '' });
     setShowAddModal(false);
   };
@@ -434,7 +464,7 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
         });
       });
 
-      if (importedEntries.length > 0) setEntries(previous => [...previous, ...importedEntries]);
+      if (importedEntries.length > 0) setEntries(previous => assignMissingEventEntryNumbers([...previous, ...importedEntries]));
       setCsvMessage(`${importedEntries.length}名を登録しました（重複 ${duplicateCount}件、必須項目不足 ${invalidCount}件をスキップ）。`);
     } catch {
       setCsvMessage('CSVを読み込めませんでした。文字コードとファイル形式を確認してください。');
@@ -489,6 +519,7 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
           <thead>
             <tr className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider">
               <th className="py-3.5 px-6">ナンバー</th>
+              <th className="py-3.5 px-6">種目別エントリー番号</th>
               <th className="py-3.5 px-6">選手氏名</th>
               <th className="py-3.5 px-6">所属団体</th>
               <th className="py-3.5 px-6">性別・種目</th>
@@ -500,6 +531,7 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
             {filteredEntries.map((entry) => (
               <tr key={entry.id} className="hover:bg-blue-50/30 transition-colors">
                 <td className="py-4 px-6 font-mono font-bold text-blue-600">{entry.bib}</td>
+                <td className="py-4 px-6 font-mono font-semibold text-gray-600">{isLongDistanceEvent(entry.event) ? entry.eventEntryNumber : '—'}</td>
                 <td className="py-4 px-6 font-bold text-gray-900">{entry.name}</td>
                 <td className="py-4 px-6 text-gray-600 font-medium">{entry.team}</td>
                 <td className="py-4 px-6">
@@ -553,10 +585,13 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
                   <label className="block text-xs font-bold text-gray-700 mb-1">メイン種目</label>
                   <select value={newAthlete.event} onChange={e => setNewAthlete({...newAthlete, event: e.target.value})} className="w-full border rounded-xl px-3 py-2 text-sm bg-white">
                     <option value="100m">100m</option>
+                    <option value="200m">200m</option>
                     <option value="400m">400m</option>
+                    <option value="800m">800m</option>
                     <option value="1000m">1000m</option>
                     <option value="1500m">1500m</option>
                     <option value="3000m">3000m</option>
+                    <option value="4*100mR">4*100mR</option>
                     <option value="走幅跳">走幅跳</option>
                   </select>
                 </div>
@@ -577,96 +612,151 @@ const EntriesInput = ({ entries, setEntries, globalSearch }) => {
   );
 };
 
-const DrawsSimulation = ({ entries }) => {
-  const targetEntries = entries.filter(e => e.event === '100m');
-  const simulateDraw = () => {
-    const validEntries = targetEntries.filter(e => e.pb).sort((a, b) => parseFloat(a.pb) - parseFloat(b.pb));
-    const ntEntries = targetEntries.filter(e => !e.pb);
-    const sorted = [...validEntries, ...ntEntries];
+const DrawsSimulation = ({ entries, setEntries }) => {
+  const eventOptions = getTrackEvents(entries);
+  const [selectedEvent, setSelectedEvent] = useState(() => eventOptions.includes('100m') ? '100m' : eventOptions[0] || '100m');
+  const [selectedGender, setSelectedGender] = useState('男子');
+  const [successMsg, setSuccessMsg] = useState('');
+  const gendersForEvent = [...new Set(entries.filter(entry => entry.event === selectedEvent).map(entry => entry.gender))];
+  const activeGender = gendersForEvent.includes(selectedGender) ? selectedGender : gendersForEvent[0] || selectedGender;
+  const targetEntries = entries.filter(entry => entry.event === selectedEvent && entry.gender === activeGender);
+  const usesLanes = ['100m', '200m', '400m', '4*100mR'].includes(selectedEvent);
+  const laneOrder = [4, 5, 3, 6, 2, 7, 1, 8];
+  const entriesByHeat = new Map();
+  targetEntries.forEach(entry => {
+    const heat = getEntryHeat(entry);
+    if (!entriesByHeat.has(heat)) entriesByHeat.set(heat, []);
+    entriesByHeat.get(heat).push(entry);
+  });
+  const groupedEntries = [...entriesByHeat.entries()]
+    .sort(([firstHeat], [secondHeat]) => firstHeat - secondHeat)
+    .flatMap(([heat, group]) => {
+      const sorted = [...group].sort((first, second) => {
+        const firstPb = Number.parseFloat(first.pb);
+        const secondPb = Number.parseFloat(second.pb);
+        if (!Number.isFinite(firstPb)) return Number.isFinite(secondPb) ? 1 : 0;
+        if (!Number.isFinite(secondPb)) return -1;
+        return firstPb - secondPb;
+      });
+      return sorted.map((entry, index) => ({
+        ...entry,
+        heat,
+        lane: usesLanes ? (index < laneOrder.length ? laneOrder[index] : '-') : '-',
+      }));
+    });
 
-    const laneOrder = [4, 5, 3, 6, 2, 7, 1, 8];
-    const drawn = sorted.map((entry, index) => ({
-      ...entry,
-      lane: index < 8 ? laneOrder[index] : '-'
-    }));
-    
-    return drawn.sort((a, b) => (a.lane === '-' ? 99 : a.lane) - (b.lane === '-' ? 99 : b.lane));
+  const handleEventChange = (event) => {
+    setSelectedEvent(event);
+    const firstGender = entries.find(entry => entry.event === event)?.gender || '男子';
+    setSelectedGender(firstGender);
+    setSuccessMsg('');
   };
 
-  const assignedEntries = simulateDraw();
-  const [successMsg, setSuccessMsg] = useState("");
+  const handleHeatChange = (entryId, value) => {
+    setEntries(previous => previous.map(entry => entry.id === entryId ? { ...entry, heat: value } : entry));
+    setSuccessMsg('');
+  };
 
   const handleConfirmDraw = () => {
-    setSuccessMsg("男子 100m 決勝のレーン割振が確定し、公式番組表へ反映されました！");
-    setTimeout(() => setSuccessMsg(""), 4000);
+    setSuccessMsg(`${activeGender} ${selectedEvent} の組割当を保存しました。`);
+    setTimeout(() => setSuccessMsg(''), 4000);
   };
 
   return (
     <div className="p-6 space-y-6 animate-fade-in max-w-7xl mx-auto">
-      <div className="flex justify-between items-center bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
+      <div className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between">
         <div>
-          <h2 className="text-xl font-black text-gray-900">プログラム自動編成 (レーン割振)</h2>
-          <p className="text-xs text-gray-500 mt-1">日本陸連競技規則に基づき、持ちタイム(PB)の優れた選手を中央レーンへ自動割り当て</p>
+          <h2 className="text-xl font-black text-gray-900">プログラム編成・組割当</h2>
+          <p className="mt-1 text-xs text-gray-500">競技結果入力で使用する組を選手ごとに設定します。</p>
         </div>
-        <button onClick={handleConfirmDraw} className="flex items-center gap-2 bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-bold text-xs hover:bg-indigo-700 shadow-sm transition-all">
-          <CheckCircle size={16} /> 編成を確定してプログラム出力
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <select value={selectedEvent} onChange={event => handleEventChange(event.target.value)} className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold">
+            {eventOptions.map(event => <option key={event} value={event}>{event}</option>)}
+          </select>
+          <select value={activeGender} onChange={event => setSelectedGender(event.target.value)} className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold">
+            {(gendersForEvent.length ? gendersForEvent : ['男子', '女子']).map(gender => <option key={gender} value={gender}>{gender}</option>)}
+          </select>
+          <button onClick={handleConfirmDraw} className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-xs font-bold text-white shadow-sm transition-all hover:bg-indigo-700">
+            <CheckCircle size={16} /> 組割当を確定
+          </button>
+        </div>
       </div>
 
-      {successMsg && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl text-sm font-bold flex items-center gap-3">
-          <CheckCircle size={20} className="text-emerald-600 shrink-0" />
-          <span>{successMsg}</span>
-        </div>
-      )}
+      {successMsg && <div role="status" className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-800"><CheckCircle size={20} />{successMsg}</div>}
 
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="bg-indigo-50/80 px-6 py-3.5 border-b border-gray-200 flex justify-between items-center">
-          <span className="font-bold text-indigo-900 text-sm">男子 100m 決勝 (自動編成プレビュー)</span>
-          <span className="text-xs font-semibold text-indigo-700 bg-white px-2.5 py-1 rounded-md shadow-sm">参加 {assignedEntries.length}名</span>
+      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <div className="flex items-center justify-between border-b border-gray-200 bg-indigo-50/80 px-6 py-3.5">
+          <span className="text-sm font-bold text-indigo-900">{activeGender} {selectedEvent} 組編成</span>
+          <span className="rounded-md bg-white px-2.5 py-1 text-xs font-semibold text-indigo-700 shadow-sm">参加 {targetEntries.length}名</span>
         </div>
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider">
-              <th className="py-3.5 px-6 text-center w-24">割当レーン</th>
-              <th className="py-3.5 px-6">ナンバー</th>
-              <th className="py-3.5 px-6">選手氏名</th>
-              <th className="py-3.5 px-6">所属団体</th>
-              <th className="py-3.5 px-6">持ちタイム (PB)</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 text-sm">
-            {assignedEntries.map((entry) => (
-              <tr key={entry.id} className={entry.lane === 4 || entry.lane === 5 ? "bg-amber-50/40" : ""}>
-                <td className="py-4 px-6 text-center">
-                  <span className={`inline-block w-8 h-8 leading-8 rounded-lg font-black text-base ${entry.lane === 4 || entry.lane === 5 ? 'bg-amber-500 text-white shadow-sm' : 'bg-gray-100 text-gray-700'}`}>
-                    {entry.lane}
-                  </span>
-                </td>
-                <td className="py-4 px-6 font-mono font-semibold text-gray-500">{entry.bib}</td>
-                <td className="py-4 px-6 font-bold text-gray-900 text-base">{entry.name}</td>
-                <td className="py-4 px-6 text-gray-600 font-medium">{entry.team}</td>
-                <td className="py-4 px-6 font-mono font-semibold text-gray-700">{entry.pb || 'NT'}</td>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] border-collapse text-left">
+            <thead>
+              <tr className="border-b border-gray-200 bg-gray-50 text-xs font-bold text-gray-500">
+                <th className="w-28 px-5 py-3.5">組</th>
+                <th className="w-28 px-5 py-3.5 text-center">{usesLanes ? '割当レーン' : '組内順'}</th>
+                <th className="px-5 py-3.5">ナンバー / 選手氏名</th>
+                <th className="px-5 py-3.5">所属団体</th>
+                <th className="w-40 px-5 py-3.5">持ち記録 (PB)</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-gray-100 text-sm">
+              {groupedEntries.map((entry, index) => (
+                <tr key={entry.id} className="hover:bg-blue-50/30">
+                  <td className="px-5 py-3">
+                    <input type="number" min="1" value={entry.heat ?? 1} onChange={event => handleHeatChange(entry.id, event.target.value)} aria-label={`${entry.name}の組`} className="w-20 rounded-lg border border-gray-300 px-2 py-1.5 text-center font-bold focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+                  </td>
+                  <td className="px-5 py-3 text-center font-mono font-bold text-gray-700">{usesLanes ? entry.lane : index + 1}</td>
+                  <td className="px-5 py-3 font-bold text-gray-900">{entry.bib}　{entry.name}</td>
+                  <td className="px-5 py-3 text-gray-600">{entry.team}</td>
+                  <td className="px-5 py-3 font-mono font-semibold text-gray-700">{entry.pb || 'NT'}</td>
+                </tr>
+              ))}
+              {targetEntries.length === 0 && <tr><td colSpan="5" className="px-5 py-10 text-center text-sm text-gray-500">この種目・性別のエントリーはありません。</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
 };
 
-const TimeFinalResultsInput = ({ entries, resultsByEvent, setResultsByEvent, onRecordSaved, onBack }) => {
-  const [selectedEvent, setSelectedEvent] = useState(timeFinalEvents[0]);
+const TimeFinalResultsInput = ({ entries, resultsByEvent, setResultsByEvent, onRecordSaved }) => {
+  const eventOptions = getTrackEvents(entries);
+  const defaultEvent = eventOptions.includes('100m') ? '100m' : eventOptions[0] || '100m';
+  const [selectedEvent, setSelectedEvent] = useState(defaultEvent);
+  const [selectedGender, setSelectedGender] = useState('男子');
+  const [selectedHeat, setSelectedHeat] = useState('1');
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
-  const rows = resultsByEvent[selectedEvent] || [];
-  const athleteByBib = new Map(entries.map(entry => [String(entry.bib).trim(), entry]));
+  const isLongDistance = isLongDistanceEvent(selectedEvent);
+  const eventEntries = entries.filter(entry => entry.event === selectedEvent && entry.gender === selectedGender);
+  const genderOptions = [...new Set(entries.filter(entry => entry.event === selectedEvent).map(entry => entry.gender))];
+  const heatOptions = isLongDistance ? [1] : [...new Set(eventEntries.map(getEntryHeat))].sort((first, second) => first - second);
+  const activeHeat = isLongDistance ? 1 : (heatOptions.includes(Number(selectedHeat)) ? Number(selectedHeat) : heatOptions[0] || 1);
+  const resultKey = `${selectedEvent}|${selectedGender}|${isLongDistance ? 'final' : activeHeat}`;
+  const currentGroupEntries = eventEntries.filter(entry => isLongDistance || getEntryHeat(entry) === activeHeat);
+  const currentBibMap = new Map(currentGroupEntries.map(entry => [String(entry.bib).trim(), entry]));
+  const longDistanceEntries = [...eventEntries].sort((first, second) => Number(first.eventEntryNumber) - Number(second.eventEntryNumber));
+  const longDistanceMap = new Map(longDistanceEntries.map((entry, index) => [String(entry.eventEntryNumber || index + 1), entry]));
+  const legacyRows = isLongDistance && Array.isArray(resultsByEvent[selectedEvent])
+    ? resultsByEvent[selectedEvent].map(row => {
+      const entry = currentGroupEntries.find(candidate => String(candidate.bib).trim() === String(row.bib || '').trim());
+      const number = entry ? entry.eventEntryNumber || longDistanceEntries.indexOf(entry) + 1 : '';
+      return { ...row, bib: '', entryNumber: String(number || '') };
+    })
+    : null;
+  const defaultRows = [{ id: `${resultKey}-arrival-1`, bib: '', entryNumber: '', time: '' }];
+  const rows = resultsByEvent[resultKey] ?? legacyRows ?? defaultRows;
+  const valueForRow = row => String(isLongDistance ? row.entryNumber || '' : row.bib || '').trim();
+  const athleteForRow = row => isLongDistance
+    ? longDistanceMap.get(valueForRow(row))
+    : currentBibMap.get(valueForRow(row));
 
   const updateRows = (updater) => {
     setResultsByEvent(previous => ({
       ...previous,
-      [selectedEvent]: typeof updater === 'function' ? updater(previous[selectedEvent] || []) : updater,
+      [resultKey]: typeof updater === 'function' ? updater(previous[resultKey] ?? rows) : updater,
     }));
   };
 
@@ -675,25 +765,34 @@ const TimeFinalResultsInput = ({ entries, resultsByEvent, setResultsByEvent, onR
   };
 
   const handleAddRow = () => {
-    updateRows(previous => [...previous, { id: `${selectedEvent}-${Date.now()}`, bib: '', time: '' }]);
+    updateRows(previous => [...previous, { id: `${resultKey}-arrival-${Date.now()}`, bib: '', entryNumber: '', time: '' }]);
   };
 
   const handleSave = () => {
-    const enteredRows = rows.filter(row => row.bib.trim() || row.time.trim());
+    const enteredRows = rows.filter(row => valueForRow(row) || String(row.time || '').trim());
     if (enteredRows.length === 0) {
-      setSaveMessage('エントリー番号と記録を入力してください。');
+      setSaveMessage('番号と記録を入力してください。');
       return;
     }
-    if (enteredRows.some(row => !row.bib.trim() || !row.time.trim())) {
+    if (enteredRows.some(row => !valueForRow(row) || !String(row.time || '').trim())) {
       setSaveMessage('入力途中の行があります。番号と記録を両方入力してください。');
       return;
     }
-    if (enteredRows.some(row => !athleteByBib.has(row.bib.trim()))) {
-      setSaveMessage('未登録のエントリー番号があります。選手エントリーを確認してください。');
+    if (enteredRows.some(row => !athleteForRow(row))) {
+      const wrongHeatEntry = !isLongDistance && entries.find(entry =>
+        String(entry.bib).trim() === valueForRow(enteredRows.find(row => !athleteForRow(row))) &&
+        entry.event === selectedEvent && entry.gender === selectedGender && getEntryHeat(entry) !== activeHeat
+      );
+      const message = wrongHeatEntry
+        ? `別の組（${getEntryHeat(wrongHeatEntry)}組）の選手です。組を確認してください。`
+        : isLongDistance
+          ? '該当する種目別エントリー番号がありません。'
+          : '該当する組のゼッケン番号がありません。';
+      setSaveMessage(message);
       return;
     }
-    if (new Set(enteredRows.map(row => row.bib.trim())).size !== enteredRows.length) {
-      setSaveMessage('同じエントリー番号が複数あります。番号を確認してください。');
+    if (new Set(enteredRows.map(valueForRow)).size !== enteredRows.length) {
+      setSaveMessage('同じ番号が複数あります。番号を確認してください。');
       return;
     }
 
@@ -701,26 +800,35 @@ const TimeFinalResultsInput = ({ entries, resultsByEvent, setResultsByEvent, onR
     setIsSaving(true);
     setTimeout(() => {
       setIsSaving(false);
-      onRecordSaved?.(`${selectedEvent} タイム決勝`);
+      onRecordSaved?.(`${selectedGender} ${selectedEvent}${isLongDistance ? ' タイム決勝' : ` ${activeHeat}組`}`);
     }, 500);
+  };
+
+  const handleEventChange = (event) => {
+    const nextGenders = [...new Set(entries.filter(entry => entry.event === event).map(entry => entry.gender))];
+    setSelectedEvent(event);
+    setSelectedGender(nextGenders.includes(selectedGender) ? selectedGender : nextGenders[0] || '男子');
+    setSelectedHeat('1');
+    setSaveMessage('');
   };
 
   return (
     <div className="p-6 space-y-6 animate-fade-in max-w-7xl mx-auto">
       <div className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={onBack} aria-label="トラック記録入力へ戻る" className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-800">
-            <ArrowLeft size={18} />
-          </button>
-          <div>
-            <span className="text-xs font-bold text-blue-700">タイム決勝・到着順入力</span>
-            <h2 className="mt-1 text-xl font-black text-gray-900">{selectedEvent} 記録入力</h2>
-          </div>
+        <div>
+          <span className="text-xs font-bold text-blue-700">トラック競技・到着順入力</span>
+          <h2 className="mt-1 text-xl font-black text-gray-900">{selectedGender} {selectedEvent}{isLongDistance ? ' タイム決勝' : ` ${activeHeat}組`}</h2>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <select value={selectedEvent} onChange={event => { setSelectedEvent(event.target.value); setSaveMessage(''); }} className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold">
-            {timeFinalEvents.map(event => <option key={event} value={event}>{event}</option>)}
+          <select value={selectedEvent} onChange={event => handleEventChange(event.target.value)} aria-label="種目" className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold">
+            {(eventOptions.length ? eventOptions : ['100m']).map(event => <option key={event} value={event}>{event}</option>)}
           </select>
+          <select value={selectedGender} onChange={event => { setSelectedGender(event.target.value); setSelectedHeat('1'); setSaveMessage(''); }} aria-label="性別" className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold">
+            {(genderOptions.length ? genderOptions : ['男子', '女子']).map(gender => <option key={gender} value={gender}>{gender}</option>)}
+          </select>
+          {!isLongDistance && <select value={String(activeHeat)} onChange={event => { setSelectedHeat(event.target.value); setSaveMessage(''); }} aria-label="組" className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-bold">
+            {heatOptions.map(heat => <option key={heat} value={heat}>{heat}組</option>)}
+          </select>}
           <button onClick={handleAddRow} className="flex items-center gap-2 rounded-xl border border-gray-300 bg-white px-4 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50">
             <Plus size={15} /> 行を追加
           </button>
@@ -734,14 +842,14 @@ const TimeFinalResultsInput = ({ entries, resultsByEvent, setResultsByEvent, onR
 
       <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
         <div className="border-b border-gray-200 bg-gray-50 px-5 py-3 text-xs font-semibold text-gray-600">
-          行の上から到着順です。エントリー番号を入力すると選手情報を表示します。
+          {isLongDistance ? '種目・性別ごとのエントリー番号を使用します。' : '選択中の組のゼッケン番号を入力してください。行の上から着順になります。'}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] border-collapse text-left">
             <thead>
               <tr className="border-b border-gray-200 text-xs font-bold text-gray-500">
-                <th className="w-24 px-5 py-3 text-center">到着順</th>
-                <th className="w-48 px-5 py-3">エントリー番号</th>
+                <th className="w-24 px-5 py-3 text-center">着順</th>
+                <th className="w-48 px-5 py-3">{isLongDistance ? 'エントリー番号' : 'ゼッケン番号'}</th>
                 <th className="px-5 py-3">選手氏名 / 所属</th>
                 <th className="w-56 px-5 py-3">記録</th>
                 <th className="w-20 px-5 py-3 text-center">操作</th>
@@ -749,49 +857,31 @@ const TimeFinalResultsInput = ({ entries, resultsByEvent, setResultsByEvent, onR
             </thead>
             <tbody className="divide-y divide-gray-100 text-sm">
               {rows.map((row, index) => {
-                const athlete = athleteByBib.get(row.bib.trim());
-                const duplicate = Boolean(row.bib.trim()) && rows.slice(0, index).some(previous => previous.bib.trim() === row.bib.trim());
+                const athlete = athleteForRow(row);
+                const identifier = valueForRow(row);
+                const duplicate = Boolean(identifier) && rows.slice(0, index).some(previous => valueForRow(previous) === identifier);
+                const wrongHeatEntry = !isLongDistance && identifier && !athlete && entries.find(entry =>
+                  String(entry.bib).trim() === identifier && entry.event === selectedEvent &&
+                  entry.gender === selectedGender && getEntryHeat(entry) !== activeHeat
+                );
+                const inputField = isLongDistance ? 'entryNumber' : 'bib';
                 return (
                   <tr key={row.id} className="hover:bg-blue-50/30">
                     <td className="px-5 py-3 text-center font-mono font-bold text-gray-700">{index + 1}</td>
                     <td className="px-5 py-3">
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={row.bib}
-                        onChange={event => handleRowChange(row.id, 'bib', event.target.value)}
-                        placeholder="例: 101"
-                        aria-label={`${index + 1}着のエントリー番号`}
-                        className={`w-full rounded-lg border px-3 py-2 font-mono font-bold focus:outline-none focus:ring-2 ${duplicate ? 'border-red-300 focus:ring-red-400' : 'border-gray-300 focus:ring-blue-500'}`}
-                      />
+                      <input type="text" inputMode="numeric" value={row[inputField] || ''} onChange={event => handleRowChange(row.id, inputField, event.target.value)} placeholder={isLongDistance ? '例: 1' : '例: 101'} aria-label={`${index + 1}着の${isLongDistance ? 'エントリー番号' : 'ゼッケン番号'}`} className={`w-full rounded-lg border px-3 py-2 font-mono font-bold focus:outline-none focus:ring-2 ${duplicate || wrongHeatEntry ? 'border-red-300 focus:ring-red-400' : 'border-gray-300 focus:ring-blue-500'}`} />
                     </td>
                     <td className="px-5 py-3">
-                      {athlete ? (
-                        <div>
-                          <div className="font-bold text-gray-900">{athlete.name}</div>
-                          <div className="mt-0.5 text-xs text-gray-500">{athlete.team} ・ {athlete.gender}</div>
-                          {duplicate && <span className="mt-1 block text-xs font-bold text-red-600">番号重複</span>}
-                        </div>
-                      ) : row.bib.trim() ? (
-                        <span className="text-xs font-semibold text-red-600">該当する選手がいません</span>
-                      ) : (
-                        <span className="text-sm text-gray-400">番号入力後に表示</span>
-                      )}
+                      {athlete ? <div><div className="font-bold text-gray-900">{athlete.name}</div><div className="mt-0.5 text-xs text-gray-500">{athlete.team} ・ {athlete.gender}</div>{duplicate && <span className="mt-1 block text-xs font-bold text-red-600">番号重複</span>}</div>
+                        : wrongHeatEntry ? <span className="text-xs font-semibold text-red-600">別の組（{getEntryHeat(wrongHeatEntry)}組）の選手です</span>
+                          : identifier ? <span className="text-xs font-semibold text-red-600">{isLongDistance ? '該当するエントリー番号がありません' : 'この種目・組のゼッケン番号がありません'}</span>
+                            : <span className="text-sm text-gray-400">番号入力後に表示</span>}
                     </td>
                     <td className="px-5 py-3">
-                      <input
-                        type="text"
-                        value={row.time}
-                        onChange={event => handleRowChange(row.id, 'time', event.target.value)}
-                        placeholder="例: 3:00.25"
-                        aria-label={`${index + 1}着の記録`}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
+                      <input type="text" value={row.time || ''} onChange={event => handleRowChange(row.id, 'time', event.target.value)} placeholder="例: 3:00.25" aria-label={`${index + 1}着の記録`} className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     </td>
                     <td className="px-5 py-3 text-center">
-                      <button onClick={() => updateRows(previous => previous.filter(item => item.id !== row.id))} aria-label={`${index + 1}着の行を削除`} className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600">
-                        <Trash2 size={16} />
-                      </button>
+                      <button onClick={() => updateRows(previous => previous.filter(item => item.id !== row.id))} aria-label={`${index + 1}着の行を削除`} className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600"><Trash2 size={16} /></button>
                     </td>
                   </tr>
                 );
@@ -804,154 +894,9 @@ const TimeFinalResultsInput = ({ entries, resultsByEvent, setResultsByEvent, onR
   );
 };
 
-const ResultsInput = ({ onRecordSaved, athletes, setAthletes, wind, setWind, refereeApproved, setRefereeApproved, entries, timeFinalResults, setTimeFinalResults }) => {
-  const [isSaving, setIsSaving] = useState(false);
-  const [isAutoImported, setIsAutoImported] = useState(false);
-  const [inputMode, setInputMode] = useState('lanes');
-
-  const handleInputChange = (id, field, value) => {
-    setAthletes(prev => prev.map(a => a.id === id ? { ...a, [field]: value } : a));
-  };
-
-  const handleFinishLynxAutoImport = () => {
-    setIsAutoImported(true);
-    setTimeout(() => {
-      setAthletes(prev => prev.map(a => {
-        if (a.bib === '104') return { ...a, time: '10.55', rank: '1', remarks: '大会新' };
-        if (a.bib === '106') return { ...a, time: '10.62', rank: '2', remarks: '' };
-        if (a.bib === '103') return { ...a, time: '10.82', rank: '3', remarks: '' };
-        if (a.bib === '101') return { ...a, time: '11.01', rank: '4', remarks: '' };
-        if (a.bib === '102') return { ...a, time: '11.02', rank: '5', remarks: '' };
-        return a;
-      }));
-      setWind('+1.2');
-    }, 400);
-  };
-
-  const handleSave = () => {
-    if (!refereeApproved) {
-      alert("審判長(Referee)のデジタル承認署名を行ってください。");
-      return;
-    }
-    setIsSaving(true);
-    setTimeout(() => {
-      setIsSaving(false);
-      if (onRecordSaved) onRecordSaved("男子 100m 決勝");
-    }, 600);
-  };
-
-  return inputMode === 'timeFinal' ? (
-    <TimeFinalResultsInput entries={entries} resultsByEvent={timeFinalResults} setResultsByEvent={setTimeFinalResults} onRecordSaved={onRecordSaved} onBack={() => setInputMode('lanes')} />
-  ) : (
-    <div className="p-6 space-y-6 animate-fade-in max-w-7xl mx-auto">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-200 shadow-sm">
-        <div>
-          <span className="text-xs font-bold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-md">トラック競技・公認記録</span>
-          <h2 className="text-xl font-black text-gray-900 mt-1">男子 100m 決勝 (記録入力コンソール)</h2>
-        </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <button onClick={() => setInputMode('timeFinal')} className="flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">
-            <Clock size={14} /> タイム決勝入力
-          </button>
-          <button 
-            onClick={handleFinishLynxAutoImport}
-            className="flex items-center gap-1.5 bg-emerald-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold hover:bg-emerald-700 shadow-sm transition-all"
-          >
-            <RefreshCw size={14} className={isAutoImported ? 'animate-spin' : ''} />
-            {isAutoImported ? '自動計時同期済み' : 'FinishLynx自動読込'}
-          </button>
-          
-          <div className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-xl border border-gray-200 text-sm">
-            <span className="text-gray-500 text-xs font-bold">風速:</span>
-            <input type="text" value={wind} onChange={(e) => setWind(e.target.value)} className="w-16 bg-white border border-gray-300 rounded-lg px-2 py-1 text-center font-mono font-bold text-sm"/>
-            <span className="text-gray-500 text-xs font-bold">m/s</span>
-          </div>
-
-          <button onClick={handleSave} disabled={isSaving} className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-xs hover:bg-blue-700 disabled:opacity-50 shadow-sm transition-all">
-            <CloudUpload size={16} /> {isSaving ? '送信中...' : '記録を確定して速報送信'}
-          </button>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        <table className="w-full text-left border-collapse">
-          <thead>
-            <tr className="bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider">
-              <th className="py-3.5 px-6 text-center w-20">レーン</th>
-              <th className="py-3.5 px-6">選手氏名 / ナンバー</th>
-              <th className="py-3.5 px-6">所属団体</th>
-              <th className="py-3.5 px-4 w-36">公認記録 (秒)</th>
-              <th className="py-3.5 px-4 w-28 text-center">順位</th>
-              <th className="py-3.5 px-6 w-36">備考 / 記録種別</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 text-sm">
-            {athletes.map((athlete) => (
-              <tr key={athlete.id} className="hover:bg-blue-50/30 transition-colors">
-                <td className="py-4 px-6 text-center font-bold text-base text-gray-700">{athlete.lane}</td>
-                <td className="py-4 px-6 font-bold text-gray-900">
-                  {athlete.name} <span className="text-xs font-mono font-normal text-gray-400 ml-2">({athlete.bib})</span>
-                </td>
-                <td className="py-4 px-6 text-gray-600 font-medium">{athlete.team}</td>
-                <td className="py-4 px-4">
-                  <input 
-                    type="text" 
-                    value={athlete.time} 
-                    onChange={(e) => handleInputChange(athlete.id, 'time', e.target.value)} 
-                    className="w-full border border-gray-300 rounded-xl px-3 py-2 font-mono font-bold text-base focus:ring-2 focus:ring-blue-500 focus:outline-none" 
-                    placeholder="10.55"
-                  />
-                </td>
-                <td className="py-4 px-4 text-center">
-                  <input 
-                    type="text" 
-                    value={athlete.rank} 
-                    onChange={(e) => handleInputChange(athlete.id, 'rank', e.target.value)} 
-                    className="w-16 mx-auto border border-gray-300 rounded-xl py-2 text-center font-black text-base focus:ring-2 focus:ring-blue-500 focus:outline-none" 
-                    placeholder="1"
-                  />
-                </td>
-                <td className="py-4 px-6">
-                  <select 
-                    value={athlete.remarks} 
-                    onChange={(e) => handleInputChange(athlete.id, 'remarks', e.target.value)}
-                    className="border border-gray-300 rounded-xl px-3 py-2 text-xs bg-white font-medium"
-                  >
-                    <option value="">通常</option>
-                    <option value="大会新">大会新 (CR)</option>
-                    <option value="県新">県新 (PR)</option>
-                    <option value="DNS">欠場 (DNS)</option>
-                    <option value="DQ">失格 (DQ)</option>
-                  </select>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        <div className="bg-slate-50 border-t border-gray-200 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <ShieldCheck size={22} className={refereeApproved ? 'text-emerald-600' : 'text-gray-400'} />
-            <div>
-              <h4 className="text-xs font-bold text-gray-900">審判長デジタル承認署名</h4>
-              <p className="text-[11px] text-gray-500">公認記録として発表するためには審判長の承認が必要です</p>
-            </div>
-          </div>
-          <button 
-            onClick={() => setRefereeApproved(!refereeApproved)}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm ${
-              refereeApproved 
-                ? 'bg-emerald-600 text-white hover:bg-emerald-700' 
-                : 'bg-white border border-gray-300 text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            {refereeApproved ? '✓ 審判長承認済み (署名完了)' : '審判長署名を行う'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
+const ResultsInput = ({ onRecordSaved, entries, timeFinalResults, setTimeFinalResults }) => (
+  <TimeFinalResultsInput entries={entries} resultsByEvent={timeFinalResults} setResultsByEvent={setTimeFinalResults} onRecordSaved={onRecordSaved} />
+);
 
 const FieldEventManagement = ({ onRecordSaved, fieldAthletes, setFieldAthletes, wind, setWind }) => {
   const [isSaving, setIsSaving] = useState(false);
@@ -1277,7 +1222,7 @@ export default function App() {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [authError, setAuthError] = useState('');
   const [activeTab, setActiveTab] = useState('results');
-  const [entries, setEntries] = useState(() => Array.isArray(localAppData.entries) ? localAppData.entries : initialGlobalEntries);
+  const [entries, setEntries] = useState(() => assignMissingEventEntryNumbers(Array.isArray(localAppData.entries) ? localAppData.entries : initialGlobalEntries));
   const [trackAthletes, setTrackAthletes] = useState(() => Array.isArray(localAppData.trackAthletes) ? localAppData.trackAthletes : initialTrackAthletes);
   const [trackWind, setTrackWind] = useState(() => typeof localAppData.trackWind === 'string' ? localAppData.trackWind : '+1.2');
   const [trackRefereeApproved, setTrackRefereeApproved] = useState(() => Boolean(localAppData.trackRefereeApproved));
@@ -1489,8 +1434,8 @@ export default function App() {
         
         <main className="flex-1 overflow-y-auto bg-slate-50/50">
           {activeTab === 'entries' && <EntriesInput entries={entries} setEntries={setEntries} globalSearch={globalSearch} />}
-          {activeTab === 'program' && <DrawsSimulation entries={entries} />}
-          {activeTab === 'results' && <ResultsInput onRecordSaved={handleRecordSaved} athletes={trackAthletes} setAthletes={setTrackAthletes} wind={trackWind} setWind={setTrackWind} refereeApproved={trackRefereeApproved} setRefereeApproved={setTrackRefereeApproved} entries={entries} timeFinalResults={timeFinalResults} setTimeFinalResults={setTimeFinalResults} />}
+          {activeTab === 'program' && <DrawsSimulation entries={entries} setEntries={setEntries} />}
+          {activeTab === 'results' && <ResultsInput onRecordSaved={handleRecordSaved} entries={entries} timeFinalResults={timeFinalResults} setTimeFinalResults={setTimeFinalResults} />}
           {activeTab === 'field' && <FieldEventManagement onRecordSaved={handleRecordSaved} fieldAthletes={fieldAthletes} setFieldAthletes={setFieldAthletes} wind={fieldWind} setWind={setFieldWind} />}
           {activeTab === 'analytics' && <TeamAnalytics />}
           {activeTab === 'print' && <BatchPrintCenter />}
