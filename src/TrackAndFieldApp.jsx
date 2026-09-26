@@ -1,10 +1,10 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState } from 'react';
 import { 
   Trophy, Users, LayoutList, FileEdit, Printer, CloudUpload, 
   Search, Bell, UserCircle, Plus, Trash2, Zap, Medal, X, 
   ChevronRight, ArrowLeft, Smartphone, CheckCircle, Compass,
   Download, BarChart2, Award, FileText, Filter, RefreshCw, Database,
-  ShieldCheck, AlertTriangle, Clock, Send
+  ShieldCheck, AlertTriangle, Clock, Send, LogOut
 } from 'lucide-react';
 
 const initialGlobalEntries = [
@@ -84,12 +84,12 @@ const loadGoogleIdentityServices = () => {
   return googleIdentityServicesPromise;
 };
 
-const requestDriveAccessToken = async (clientId) => {
+const requestDriveAccessToken = async (clientId, prompt = '') => {
   await loadGoogleIdentityServices();
   return new Promise((resolve, reject) => {
     const tokenClient = window.google.accounts.oauth2.initTokenClient({
       client_id: clientId,
-      scope: 'https://www.googleapis.com/auth/drive.file',
+      scope: 'openid email profile https://www.googleapis.com/auth/drive.file',
       callback: response => {
         if (response.error) {
           reject(new Error(response.error_description || response.error));
@@ -99,7 +99,7 @@ const requestDriveAccessToken = async (clientId) => {
       },
       error_callback: error => reject(new Error(error.message || 'Google認証に失敗しました。')),
     });
-    tokenClient.requestAccessToken({ prompt: '' });
+    tokenClient.requestAccessToken({ prompt });
   });
 };
 
@@ -245,7 +245,7 @@ const Sidebar = ({ activeTab, setActiveTab }) => {
   );
 };
 
-const TopBar = ({ onTriggerDemoNotification, globalSearch, setGlobalSearch, cloudSyncStatus, onSaveToDrive, onRestoreFromDrive, driveMessage, setDriveMessage }) => {
+const TopBar = ({ onTriggerDemoNotification, globalSearch, setGlobalSearch, cloudSyncStatus, onSaveToDrive, onRestoreFromDrive, driveMessage, setDriveMessage, googleUser, onSignOut }) => {
   return (
     <>
     <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6 sticky top-0 z-10 shadow-sm">
@@ -281,9 +281,10 @@ const TopBar = ({ onTriggerDemoNotification, globalSearch, setGlobalSearch, clou
           <Medal size={14} /> 表彰・アナウンステスト
         </button>
         <div className="h-6 w-px bg-gray-200"></div>
-        <button className="flex items-center gap-2 text-gray-700 hover:text-blue-600 transition-colors">
-          <UserCircle size={26} className="text-gray-400" />
-          <span className="text-sm font-bold">大会総務・審判長 (Admin)</span>
+        <button onClick={onSignOut} title="ログアウト" className="flex items-center gap-2 text-gray-700 hover:text-blue-600 transition-colors">
+          {googleUser.picture ? <img src={googleUser.picture} alt="" className="h-7 w-7 rounded-full" /> : <UserCircle size={26} className="text-gray-400" />}
+          <span className="max-w-40 truncate text-sm font-bold">{googleUser.name || googleUser.email}</span>
+          <LogOut size={15} />
         </button>
       </div>
     </header>
@@ -313,6 +314,28 @@ const NotificationToast = ({ message, onClose }) => (
       <button onClick={onClose} className="text-gray-400 hover:text-gray-600 shrink-0"><X size={16} /></button>
     </div>
   </div>
+);
+
+const GoogleLoginScreen = ({ clientId, isSigningIn, errorMessage, onSignIn }) => (
+  <main className="flex min-h-screen items-center justify-center bg-slate-100 px-5">
+    <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-lg">
+      <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-xl bg-blue-600 text-white">
+        <Trophy size={28} />
+      </div>
+      <h1 className="text-xl font-black text-slate-900">陸上競技大会システム</h1>
+      <p className="mt-2 text-sm font-semibold text-slate-500">Googleアカウントでログイン</p>
+      {errorMessage && <p role="alert" className="mt-5 rounded-lg border border-red-200 bg-red-50 p-3 text-left text-sm text-red-700">{errorMessage}</p>}
+      <button
+        onClick={onSignIn}
+        disabled={!clientId || isSigningIn}
+        className="mt-6 flex w-full items-center justify-center gap-3 rounded-lg border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <span className="text-lg font-black text-blue-600">G</span>
+        {isSigningIn ? '認証中...' : 'Googleでログイン'}
+      </button>
+      {!clientId && <p className="mt-4 text-left text-xs text-amber-700">OAuth Client IDが設定されていません。</p>}
+    </section>
+  </main>
 );
 
 const EntriesInput = ({ entries, setEntries, globalSearch }) => {
@@ -993,6 +1016,9 @@ const MobileLiveResult = () => {
 
 export default function App() {
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
+  const [googleUser, setGoogleUser] = useState(null);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [authError, setAuthError] = useState('');
   const [activeTab, setActiveTab] = useState('results');
   const [entries, setEntries] = useState(initialGlobalEntries);
   const [trackAthletes, setTrackAthletes] = useState(initialTrackAthletes);
@@ -1005,6 +1031,31 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState("");
   const [cloudSyncStatus, setCloudSyncStatus] = useState('idle');
   const [driveMessage, setDriveMessage] = useState('');
+
+  const handleGoogleSignIn = async () => {
+    if (!googleClientId) {
+      setAuthError('Google OAuth Client IDが設定されていません。');
+      return;
+    }
+    setIsSigningIn(true);
+    setAuthError('');
+    try {
+      const accessToken = await requestDriveAccessToken(googleClientId, 'select_account');
+      const response = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) throw new Error('Googleアカウント情報を取得できませんでした。');
+      setGoogleUser(await response.json());
+    } catch (error) {
+      setAuthError(`Google認証に失敗しました: ${error.message}`);
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const handleSignOut = () => {
+    if (window.confirm('ログアウトしますか？保存していない変更は破棄されます。')) window.location.reload();
+  };
 
   const triggerAwardNotification = (eventName) => {
     setToastMessage(`${eventName} の公式記録確定から20分が経過しました。表彰式のアナウンスおよび賞状印刷の準備を行ってください。`);
@@ -1080,6 +1131,10 @@ export default function App() {
     }
   };
 
+  if (!googleUser) {
+    return <GoogleLoginScreen clientId={googleClientId} isSigningIn={isSigningIn} errorMessage={authError} onSignIn={handleGoogleSignIn} />;
+  }
+
   return (
     <div className="flex h-screen bg-slate-50 font-sans overflow-hidden text-gray-900">
       <style dangerouslySetInnerHTML={{__html: `
@@ -1113,6 +1168,8 @@ export default function App() {
           onRestoreFromDrive={handleDriveRestore}
           driveMessage={driveMessage}
           setDriveMessage={setDriveMessage}
+          googleUser={googleUser}
+          onSignOut={handleSignOut}
         />
         
         <main className="flex-1 overflow-y-auto bg-slate-50/50">

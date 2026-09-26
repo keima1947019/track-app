@@ -55,6 +55,8 @@ docker run -d --name track-app -p 8081:80 track-app
 
 ## Google Drive連携
 
+アプリを開くと、Google OAuthでログインするまで大会管理画面は表示されません。OAuth同意画面ではアカウント識別用の`openid`・`email`・`profile`と、バックアップ用の`drive.file`スコープを使用します。
+
 Google Driveへのバックアップには、Google CloudでDrive APIを有効化し、Webアプリケーション用のOAuth Client IDを設定する必要があります。Client IDはビルド時に指定します。
 
 ```powershell
