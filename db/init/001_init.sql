@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS meet_state (
+  id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+  individual_entries JSON NOT NULL,
+  relay_teams JSON NOT NULL,
+  draws JSON NOT NULL,
+  results JSON NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+INSERT INTO meet_state (id, individual_entries, relay_teams, draws, results)
+VALUES (1, JSON_ARRAY(), JSON_ARRAY(), JSON_OBJECT(), JSON_OBJECT())
+ON DUPLICATE KEY UPDATE id = id;
