@@ -45,4 +45,12 @@ To generate static files for production, do the following:
 ```bash
 npm run build
 ```
-.
+
+## Patch Application
+
+```bash
+git apply --check <name-of-patchfile>
+git apply <name-of-patchfile>
+docker compose up -d --build app
+docker compose ps
+```
