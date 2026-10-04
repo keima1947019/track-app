@@ -45,3 +45,4 @@ To generate static files for production, do the following:
 ```bash
 npm run build
 ```
+.
