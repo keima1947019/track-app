@@ -1,0 +1,135 @@
+diff --git a/TrackAndFieldApp.jsx b/TrackAndFieldApp.jsx
+index db1fe2d..c939904 100644
+--- a/TrackAndFieldApp.jsx
++++ b/TrackAndFieldApp.jsx
+@@ -149,7 +149,18 @@ const getPageContext = () => {
+   const isPublicLivePage = !isAdminPage && Boolean(publicCode);
+   return { publicCode, isAdminPage, isPublicLivePage, isForbiddenPage: !isAdminPage && !isPublicLivePage };
+ };
+-
++const ACTIVE_TAB_KEY = 'track-app-active-tab';
++const ADMIN_TAB_IDS = new Set(['entries', 'draws', 'results', 'live', 'timetable', 'certificates', 'userSettings']);
++const readStoredActiveTab = () => {
++  if (typeof window === 'undefined' || !getPageContext().isAdminPage) return 'live';
++  try {
++    const savedTab = window.localStorage.getItem(ACTIVE_TAB_KEY);
++    return ADMIN_TAB_IDS.has(savedTab) ? savedTab : 'live';
++  } catch (error) {
++    console.warn('選択中のメニューを読み込めませんでした。', error);
++    return 'live';
++  }
++};
+ // 部門名の正規化処理
+ const normalizeDepartment = (dept) => {
+   if (!dept) return '一般';
+@@ -297,7 +308,7 @@ const buildGeneratedRaces = (targetEntries, event, lanesPerRace) => {
+ };
+ 
+ export default function App() {
+-  const [activeTab, setActiveTab] = useState('live');
++  const [activeTab, setActiveTab] = useState(readStoredActiveTab);
+   const [entrySubTab, setEntrySubTab] = useState('individual'); // 'individual' | 'relay'
+   // 画面更新（リロード）直後は、保存済みのトークン＋ユーザー情報から
+   // ログイン状態を同期的に復元し、ログイン画面へ戻らないようにする
+@@ -305,8 +316,6 @@ export default function App() {
+   const [user, setUser] = useState(initialSession.user);
+   const [authToken, setAuthToken] = useState(initialSession.token);
+   const [authRestoring, setAuthRestoring] = useState(Boolean(initialSession.token) && !initialSession.user);
+-  const [sessionWarning, setSessionWarning] = useState('');
+-  const [authCheckNonce, setAuthCheckNonce] = useState(0);
+   const skipNextAuthValidation = useRef('');
+   const [loginId, setLoginId] = useState('');
+   const [loginPassword, setLoginPassword] = useState('');
+@@ -362,6 +371,15 @@ export default function App() {
+   // 403（公開URLでも管理URLでもない）場合のみ非表示。ログイン状態の復元中も画面は表示し続ける
+   const canRenderApp = !isForbiddenPage;
+ 
++  useEffect(() => {
++    if (!isAdminPage) return;
++    try {
++      window.localStorage.setItem(ACTIVE_TAB_KEY, activeTab);
++    } catch (error) {
++      console.warn('選択中のメニューを保存できませんでした。', error);
++    }
++  }, [activeTab, isAdminPage]);
++
+   useEffect(() => {
+     document.title = isForbiddenPage
+       ? '403エラー'
+@@ -393,7 +411,6 @@ export default function App() {
+             persistSession(authToken, body.user);
+             setUserEdit({ username: body.user.email, displayName: body.user.name, password: '' });
+           }
+-          setSessionWarning('');
+           setAuthRestoring(false);
+           return;
+         }
+@@ -402,7 +419,6 @@ export default function App() {
+           persistSession('', null);
+           setUser(null);
+           setAuthToken('');
+-          setSessionWarning('');
+           setAuthError('ログインの有効期限が切れました。もう一度ログインしてください。');
+           setAuthRestoring(false);
+           return;
+@@ -418,12 +434,11 @@ export default function App() {
+         }
+         console.warn('ログイン状態の確認に失敗しました。', error);
+         setAuthRestoring(false);
+-        setSessionWarning('ログイン状態を確認できませんでした（通信エラー）。セッションは保持されています。');
+       }
+     };
+     validateSession();
+     return () => { cancelled = true; if (retryTimer) window.clearTimeout(retryTimer); };
+-  }, [authToken, authCheckNonce]);
++  }, [authToken]);
+ 
+   // ブラウザ内に大会データを保存し、リロード後も復元する
+   useEffect(() => {
+@@ -529,7 +544,6 @@ export default function App() {
+       setAuthToken(verified.token);
+       setUser(verified.user);
+       setUserEdit({ username: verified.user.email, displayName: verified.user.name, password: '' });
+-      setSessionWarning('');
+       setLoginPassword('');
+     } catch (error) {
+       console.warn('ログインAPIに接続できません。', error);
+@@ -541,7 +555,6 @@ export default function App() {
+     setUser(null);
+     setAuthToken('');
+     persistSession('', null);
+-    setSessionWarning('');
+     setActiveTab('live');
+   };
+ 
+@@ -550,7 +563,6 @@ export default function App() {
+     persistSession('', null);
+     setUser(null);
+     setAuthToken('');
+-    setSessionWarning('');
+     setAuthError(message);
+   };
+ 
+@@ -1379,22 +1391,6 @@ export default function App() {
+           </div>
+         )}
+ 
+-        {sessionWarning && !authError && (
+-          <div className="bg-amber-500 text-white text-xs py-2 px-6 flex items-center justify-between font-bold">
+-            <div className="flex items-center gap-2">
+-              <AlertTriangle size={16} />
+-              <span>{sessionWarning}</span>
+-            </div>
+-            <button
+-              type="button"
+-              onClick={() => { setSessionWarning(''); setAuthCheckNonce(count => count + 1); }}
+-              className="text-white underline decoration-white/60 hover:decoration-white"
+-            >
+-              再試行
+-            </button>
+-          </div>
+-        )}
+-
+         {canRenderApp && (!isAdminPage || user) && (
+           <div className="max-w-7xl mx-auto px-6 flex gap-1 overflow-x-auto border-t border-slate-800">
+             {navTabs.filter(tab => user || !tab.protected).map(tab => {
