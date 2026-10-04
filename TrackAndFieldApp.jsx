@@ -8,7 +8,7 @@ import {
 const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || '/api';
 
 // 部門表記
-const DEPARTMENTS = ['一般', '高校', '中学', '小学', '壮年'];
+const DEPARTMENTS = ['一般', '中学', '小学', '壮年'];
 const GENDERS = ['男子', '女子', '混合'];
 const INDIVIDUAL_EVENTS = ['100m', '200m', '800m', '1500m', '3000m', '110mH（ハードル）', '100mH（ハードル）', '走り幅跳び', '走高跳', '砲丸投'];
 const RELAY_EVENTS = ['4×100mR', '4×400mR'];
@@ -227,8 +227,14 @@ const normalizeDepartment = (dept) => {
   if (d === '中学生') return '中学';
   if (d === '小学生') return '小学';
   if (d === 'マスターズ') return '壮年';
+  // 旧データ／CSVの「高校」は、統合後の「一般」として扱います。
+  if (d === '高校') return '一般';
   return DEPARTMENTS.includes(d) ? d : '一般';
 };
+
+const normalizeStoredEntries = (entries) => entries.map(entry => (
+  entry?.department === '高校' ? { ...entry, department: '一般' } : entry
+));
 
 // リレー種目判定
 const isRelayEvent = (ev) => ev ? (ev.includes('R') || ev.includes('リレー')) : false;
@@ -265,7 +271,8 @@ const parseDrawKey = (key) => {
   const parts = String(key).split('-');
   const event = parts.pop() || '';
   const gender = parts.pop() || '';
-  return { department: parts.join('-'), gender, event };
+  const department = parts.join('-');
+  return { department: department === '高校' ? '一般' : department, gender, event };
 };
 
 const recalculateTimetableRows = (rows, config, anchorKey = null, requestedStart = null) => {
@@ -412,6 +419,7 @@ export default function App() {
 
   // エントリー追加・編集 State
   const [editingId, setEditingId] = useState(null);
+  const [entryEditModal, setEntryEditModal] = useState(null); // 'individual' | 'relay' | null
   const [selectedIndividualIds, setSelectedIndividualIds] = useState([]);
   const [selectedRelayIds, setSelectedRelayIds] = useState([]);
   const [newIndividual, setNewIndividual] = useState({
@@ -528,8 +536,8 @@ export default function App() {
           parsed = { ...parsed, timetableConfig: localState.timetableConfig };
         }
         if (cancelled) return;
-        if (Array.isArray(parsed.individualEntries)) setIndividualEntries(parsed.individualEntries);
-        if (Array.isArray(parsed.relayTeams)) setRelayTeams(parsed.relayTeams);
+        if (Array.isArray(parsed.individualEntries)) setIndividualEntries(normalizeStoredEntries(parsed.individualEntries));
+        if (Array.isArray(parsed.relayTeams)) setRelayTeams(normalizeStoredEntries(parsed.relayTeams));
         if (parsed.draws && typeof parsed.draws === 'object') setDraws(parsed.draws);
         if (parsed.results && typeof parsed.results === 'object') setResults(parsed.results);
         if (parsed.timetableConfig && typeof parsed.timetableConfig === 'object') setTimetableConfig(prev => ({ ...prev, ...parsed.timetableConfig }));
@@ -539,8 +547,8 @@ export default function App() {
         try {
           const parsed = readStoredMeetState();
           if (parsed) {
-            if (!cancelled && Array.isArray(parsed.individualEntries)) setIndividualEntries(parsed.individualEntries);
-            if (!cancelled && Array.isArray(parsed.relayTeams)) setRelayTeams(parsed.relayTeams);
+            if (!cancelled && Array.isArray(parsed.individualEntries)) setIndividualEntries(normalizeStoredEntries(parsed.individualEntries));
+            if (!cancelled && Array.isArray(parsed.relayTeams)) setRelayTeams(normalizeStoredEntries(parsed.relayTeams));
             if (!cancelled && parsed.draws && typeof parsed.draws === 'object') setDraws(parsed.draws);
             if (!cancelled && parsed.results && typeof parsed.results === 'object') setResults(parsed.results);
             if (!cancelled && parsed.timetableConfig && typeof parsed.timetableConfig === 'object') setTimetableConfig(prev => ({ ...prev, ...parsed.timetableConfig }));
@@ -735,7 +743,10 @@ export default function App() {
       : [...individualEntries, savedEntry];
     setIndividualEntries(nextIndividuals);
     rebuildDrawsFor([{ department: cleaned.department, gender: cleaned.gender, event: cleaned.event }], nextIndividuals, relayTeams);
-    if (editingId) setEditingId(null);
+    if (editingId) {
+      setEditingId(null);
+      setEntryEditModal(null);
+    }
 
     setNewIndividual({ bib: '', name: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '100m', pb: '' });
   };
@@ -756,7 +767,10 @@ export default function App() {
       : [...relayTeams, savedTeam];
     setRelayTeams(nextRelays);
     rebuildDrawsFor([{ department: cleaned.department, gender: cleaned.gender, event: cleaned.event }], individualEntries, nextRelays);
-    if (editingId) setEditingId(null);
+    if (editingId) {
+      setEditingId(null);
+      setEntryEditModal(null);
+    }
 
     setNewRelayTeam({ teamId: '', teamName: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '4×100mR', pb: '' });
   };
@@ -764,18 +778,30 @@ export default function App() {
   const handleStartEditIndividual = (entry) => {
     setEditingId(entry.id);
     setNewIndividual({ ...entry });
+    setEntryEditModal('individual');
   };
 
   const handleStartEditRelay = (team) => {
     setEditingId(team.id);
     setNewRelayTeam({ ...team });
+    setEntryEditModal('relay');
   };
 
   const handleCancelEdit = () => {
     setEditingId(null);
+    setEntryEditModal(null);
     setNewIndividual({ bib: '', name: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '100m', pb: '' });
     setNewRelayTeam({ teamId: '', teamName: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '4×100mR', pb: '' });
   };
+
+  useEffect(() => {
+    if (!entryEditModal) return undefined;
+    const closeOnEscape = event => {
+      if (event.key === 'Escape') handleCancelEdit();
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [entryEditModal]);
 
   // CSV インポート（引用符・カンマ・改行コードに対応）
   const handleCSVImport = (event) => {
@@ -1679,7 +1705,7 @@ export default function App() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => { if (entryEditModal) handleCancelEdit(); setActiveTab(tab.id); }}
                 className={`flex items-center gap-2 px-4 py-3 text-xs font-bold transition-all border-b-2 whitespace-nowrap ${
                   activeTab === tab.id 
                     ? 'border-indigo-500 text-white bg-slate-800/80' 
@@ -2174,6 +2200,104 @@ export default function App() {
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {activeTab === 'entries' && entryEditModal && (
+              <div
+                className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-6"
+                role="presentation"
+                onMouseDown={event => { if (event.target === event.currentTarget) handleCancelEdit(); }}
+              >
+                <section
+                  className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl sm:p-6"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="entry-edit-dialog-title"
+                >
+                  <header className="mb-5 flex items-start justify-between gap-3 border-b border-slate-200 pb-4">
+                    <div>
+                      <h2 id="entry-edit-dialog-title" className="flex items-center gap-2 text-lg font-black text-slate-900">
+                        <Edit3 size={20} className="text-amber-600" />
+                        {entryEditModal === 'individual' ? '個人選手情報を編集' : 'リレーチーム情報を編集'}
+                      </h2>
+                      <p className="mt-1 text-xs text-slate-500">内容を修正し、「変更を保存」を押してください。</p>
+                    </div>
+                    <button type="button" onClick={handleCancelEdit} aria-label="編集を閉じる" className="flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800">
+                      <X size={20} />
+                    </button>
+                  </header>
+
+                  {entryEditModal === 'individual' ? (
+                    <form onSubmit={handleSaveIndividual} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label className="text-sm font-bold text-slate-700">ゼッケン
+                        <input autoFocus value={newIndividual.bib} onChange={event => setNewIndividual({ ...newIndividual, bib: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-base font-normal text-slate-900" />
+                      </label>
+                      <label className="text-sm font-bold text-slate-700">氏名
+                        <input required value={newIndividual.name} onChange={event => setNewIndividual({ ...newIndividual, name: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-base font-bold text-slate-900" />
+                      </label>
+                      <label className="text-sm font-bold text-slate-700 sm:col-span-2">所属団体
+                        <input required value={newIndividual.affiliation} onChange={event => setNewIndividual({ ...newIndividual, affiliation: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-base font-normal text-slate-900" />
+                      </label>
+                      <label className="text-sm font-bold text-slate-700">部門
+                        <select value={newIndividual.department} onChange={event => { const department = event.target.value; const events = getAvailableIndividualEvents(department, newIndividual.gender); setNewIndividual({ ...newIndividual, department, event: events.includes(newIndividual.event) ? newIndividual.event : events[0] }); }} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-normal text-slate-900">
+                          {DEPARTMENTS.map(department => <option key={department} value={department}>{department}</option>)}
+                        </select>
+                      </label>
+                      <label className="text-sm font-bold text-slate-700">性別
+                        <select value={newIndividual.gender} onChange={event => { const gender = event.target.value; const events = getAvailableIndividualEvents(newIndividual.department, gender); setNewIndividual({ ...newIndividual, gender, event: events.includes(newIndividual.event) ? newIndividual.event : events[0] }); }} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-normal text-slate-900">
+                          {GENDERS.map(gender => <option key={gender} value={gender}>{gender}</option>)}
+                        </select>
+                      </label>
+                      <label className="text-sm font-bold text-slate-700">種目
+                        <select value={newIndividual.event} onChange={event => setNewIndividual({ ...newIndividual, event: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-bold text-indigo-700">
+                          {getAvailableIndividualEvents(newIndividual.department, newIndividual.gender).map(eventName => <option key={eventName} value={eventName}>{eventName}</option>)}
+                        </select>
+                      </label>
+                      <label className="text-sm font-bold text-slate-700">PB
+                        <input value={newIndividual.pb || ''} onChange={event => setNewIndividual({ ...newIndividual, pb: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-base font-mono font-normal text-slate-900" />
+                      </label>
+                      <div className="mt-2 flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:col-span-2 sm:flex-row sm:justify-end">
+                        <button type="button" onClick={handleCancelEdit} className="min-h-11 rounded-lg bg-slate-100 px-5 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200">キャンセル</button>
+                        <button type="submit" className="min-h-11 rounded-lg bg-amber-600 px-5 py-2 text-sm font-bold text-white hover:bg-amber-700">変更を保存</button>
+                      </div>
+                    </form>
+                  ) : (
+                    <form onSubmit={handleSaveRelayTeam} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <label className="text-sm font-bold text-slate-700">チームID／ゼッケン
+                        <input value={newRelayTeam.teamId} onChange={event => setNewRelayTeam({ ...newRelayTeam, teamId: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-base font-normal text-slate-900" />
+                      </label>
+                      <label className="text-sm font-bold text-slate-700">チーム名
+                        <input autoFocus required value={newRelayTeam.teamName} onChange={event => setNewRelayTeam({ ...newRelayTeam, teamName: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-base font-bold text-slate-900" />
+                      </label>
+                      <label className="text-sm font-bold text-slate-700 sm:col-span-2">所属団体
+                        <input required value={newRelayTeam.affiliation} onChange={event => setNewRelayTeam({ ...newRelayTeam, affiliation: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-base font-normal text-slate-900" />
+                      </label>
+                      <label className="text-sm font-bold text-slate-700">部門
+                        <select value={newRelayTeam.department} onChange={event => setNewRelayTeam({ ...newRelayTeam, department: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-normal text-slate-900">
+                          {DEPARTMENTS.map(department => <option key={department} value={department}>{department}</option>)}
+                        </select>
+                      </label>
+                      <label className="text-sm font-bold text-slate-700">性別
+                        <select value={newRelayTeam.gender} onChange={event => setNewRelayTeam({ ...newRelayTeam, gender: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-normal text-slate-900">
+                          {GENDERS.map(gender => <option key={gender} value={gender}>{gender}</option>)}
+                        </select>
+                      </label>
+                      <label className="text-sm font-bold text-slate-700">種目
+                        <select value={newRelayTeam.event} onChange={event => setNewRelayTeam({ ...newRelayTeam, event: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-bold text-indigo-700">
+                          {RELAY_EVENTS.map(eventName => <option key={eventName} value={eventName}>{eventName}</option>)}
+                        </select>
+                      </label>
+                      <label className="text-sm font-bold text-slate-700">申込タイム
+                        <input value={newRelayTeam.pb || ''} onChange={event => setNewRelayTeam({ ...newRelayTeam, pb: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-base font-mono font-normal text-slate-900" />
+                      </label>
+                      <div className="mt-2 flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:col-span-2 sm:flex-row sm:justify-end">
+                        <button type="button" onClick={handleCancelEdit} className="min-h-11 rounded-lg bg-slate-100 px-5 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200">キャンセル</button>
+                        <button type="submit" className="min-h-11 rounded-lg bg-amber-600 px-5 py-2 text-sm font-bold text-white hover:bg-amber-700">変更を保存</button>
+                      </div>
+                    </form>
+                  )}
+                </section>
               </div>
             )}
 
