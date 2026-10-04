@@ -397,6 +397,7 @@ export default function App() {
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [selectedGender, setSelectedGender] = useState('');
   const [selectedEvent, setSelectedEvent] = useState('');
+  const [manualEntryTargetKey, setManualEntryTargetKey] = useState('');
   const [resultSummaryMode, setResultSummaryMode] = useState('top8');
   const [lanesPerRace, setLanesPerRace] = useState(8);
   const [timetableConfig, setTimetableConfig] = useState({
@@ -1587,6 +1588,25 @@ export default function App() {
   const currentTabObj = navTabs.find(t => t.id === activeTab);
   const currentKey = `${selectedDepartment}-${selectedGender}-${selectedEvent}`;
   const allConditionMode = !selectedDepartment && !selectedGender && !selectedEvent;
+  const resultDrawEntries = Object.entries(draws || {}).filter(([key]) => {
+    const meta = parseDrawKey(key);
+    return (!selectedDepartment || meta.department === selectedDepartment)
+      && (!selectedGender || meta.gender === selectedGender)
+      && (!selectedEvent || meta.event === selectedEvent);
+  });
+  const openManualResultsEntry = () => {
+    const targetKey = manualEntryTargetKey || (draws[currentKey] ? currentKey : '');
+    if (!targetKey || !draws[targetKey]) {
+      alert('手入力する競技を選択してください。');
+      return;
+    }
+    const meta = parseDrawKey(targetKey);
+    setManualEntryTargetKey(targetKey);
+    setSelectedDepartment(meta.department);
+    setSelectedGender(meta.gender);
+    setSelectedEvent(meta.event);
+    window.setTimeout(() => document.getElementById('results-entry-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+  };
   const overallFinalResults = (draws[currentKey] || []).flatMap(race => {
     const raceKey = `${currentKey}-${race.raceNumber}`;
     return (results[raceKey] || []).map(result => ({
@@ -2408,7 +2428,7 @@ export default function App() {
                 <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-3 items-center">
                   <select
                     value={selectedDepartment}
-                    onChange={e => setSelectedDepartment(e.target.value)}
+                    onChange={e => { setManualEntryTargetKey(''); setSelectedDepartment(e.target.value); }}
                     className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
                   >
                     <option value="">全ての部門</option>
@@ -2416,7 +2436,7 @@ export default function App() {
                   </select>
                   <select
                     value={selectedGender}
-                    onChange={e => setSelectedGender(e.target.value)}
+                    onChange={e => { setManualEntryTargetKey(''); setSelectedGender(e.target.value); }}
                     className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
                   >
                     <option value="">全ての性別</option>
@@ -2424,7 +2444,7 @@ export default function App() {
                   </select>
                   <select
                     value={selectedEvent}
-                    onChange={e => setSelectedEvent(e.target.value)}
+                    onChange={e => { setManualEntryTargetKey(''); setSelectedEvent(e.target.value); }}
                     className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
                   >
                     <option value="">全ての種目</option>
@@ -2454,6 +2474,45 @@ export default function App() {
                   )}
                 </div>
 
+                <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-end gap-3">
+                  <div className="sm:mr-auto">
+                    <h2 className="text-sm font-black text-indigo-950">結果を手入力する競技を選択</h2>
+                    <p className="mt-1 text-xs text-indigo-800">部門ごとの選択メニューから競技を選び、入力画面を開きます。</p>
+                  </div>
+                  <label className="text-xs font-bold text-slate-700 sm:min-w-72">
+                    手入力する競技
+                    <select
+                      value={manualEntryTargetKey || (draws[currentKey] ? currentKey : '')}
+                      onChange={event => setManualEntryTargetKey(event.target.value)}
+                      className="mt-1 w-full p-2.5 border border-indigo-200 rounded-lg bg-white text-sm"
+                    >
+                      <option value="">競技を選択してください</option>
+                      {Array.from(new Set(Object.keys(draws).map(key => parseDrawKey(key).department))).sort((a, b) => a.localeCompare(b, 'ja')).map(department => (
+                        <optgroup key={department} label={department}>
+                          {Object.entries(draws)
+                            .filter(([key]) => parseDrawKey(key).department === department)
+                            .sort(([keyA], [keyB]) => {
+                              const a = parseDrawKey(keyA); const b = parseDrawKey(keyB);
+                              return `${a.gender}${a.event}`.localeCompare(`${b.gender}${b.event}`, 'ja');
+                            })
+                            .map(([key, races]) => {
+                              const meta = parseDrawKey(key);
+                              return <option key={key} value={key}>{meta.gender} {meta.event}（{races.length}組）</option>;
+                            })}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={openManualResultsEntry}
+                    disabled={!manualEntryTargetKey && !draws[currentKey]}
+                    className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-sm"
+                  >
+                    <FileEdit size={14} /> 選択した競技を手入力
+                  </button>
+                </div>
+
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                   <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center gap-2">
                     <div className="mr-auto">
@@ -2480,11 +2539,11 @@ export default function App() {
                   ) : <div className="p-10 text-center text-slate-400 text-xs">表示できる競技結果がありません。</div>}
                 </div>
 
-                {allConditionMode ? (
-                  Object.keys(draws).length ? (
-                    <div className="space-y-4">{Object.entries(draws).map(([key, races]) => {
+                {allConditionMode || !draws[currentKey] ? (
+                  resultDrawEntries.length ? (
+                    <div className="space-y-4">{resultDrawEntries.map(([key, races]) => {
                       const meta = parseDrawKey(key);
-                      return <div key={key} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"><div className="bg-slate-900 text-white px-4 py-3 text-sm font-black">{meta.department} {meta.gender} {meta.event}（{races.length}組）</div><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">組</th><th className="p-3">レーン/試技順</th><th className="p-3">氏名/チーム名</th><th className="p-3">所属</th><th className="p-3">順位</th><th className="p-3">記録</th><th className="p-3">状態</th></tr></thead><tbody className="divide-y divide-slate-100">{races.flatMap(race => { const raceResults = results[`${key}-${race.raceNumber}`] || []; return race.lanes.map(item => { const result = raceResults.find(entry => entry.athleteId === item.athlete.id) || {}; return <tr key={`${race.raceNumber}-${item.lane}`}><td className="p-3">第{race.raceNumber}組</td><td className="p-3 text-center font-bold text-indigo-600">{item.lane}</td><td className="p-3 font-bold">{item.athlete.name}</td><td className="p-3 text-slate-600">{item.athlete.affiliation}</td><td className="p-3">{result.rank || '-'}</td><td className="p-3 font-mono">{result.time || '未入力'}</td><td className="p-3">{result.status || '未入力'}</td></tr>; }); })}</tbody></table></div>;
+                      return <div key={key} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"><div className="bg-slate-900 text-white px-4 py-3 flex flex-wrap items-center justify-between gap-3"><span className="text-sm font-black">{meta.department} {meta.gender} {meta.event}（{races.length}組）</span></div><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">組</th><th className="p-3">レーン/試技順</th><th className="p-3">氏名/チーム名</th><th className="p-3">所属</th><th className="p-3">順位</th><th className="p-3">記録</th><th className="p-3">状態</th></tr></thead><tbody className="divide-y divide-slate-100">{races.flatMap(race => { const raceResults = results[`${key}-${race.raceNumber}`] || []; return race.lanes.map(item => { const result = raceResults.find(entry => entry.athleteId === item.athlete.id) || {}; return <tr key={`${race.raceNumber}-${item.lane}`}><td className="p-3">第{race.raceNumber}組</td><td className="p-3 text-center font-bold text-indigo-600">{item.lane}</td><td className="p-3 font-bold">{item.athlete.name}</td><td className="p-3 text-slate-600">{item.athlete.affiliation}</td><td className="p-3">{result.rank || '-'}</td><td className="p-3 font-mono">{result.time || '未入力'}</td><td className="p-3">{result.status || '未入力'}</td></tr>; }); })}</tbody></table></div>;
                     })}</div>
                   ) : <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 text-slate-400 text-xs">表示できる組割りデータがありません。</div>
                 ) : draws[currentKey] ? (
@@ -2493,7 +2552,7 @@ export default function App() {
                     const isField = isFieldEvent(selectedEvent);
 
                     return (
-                      <div key={race.raceNumber} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div key={race.raceNumber} id={race.raceNumber === draws[currentKey]?.[0]?.raceNumber ? 'results-entry-editor' : undefined} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                         <div className="bg-slate-900 text-white px-4 py-3 text-xs font-bold flex justify-between items-center">
                           <span className="flex items-center gap-2">
                             <CheckCircle size={14} className="text-emerald-400" />
