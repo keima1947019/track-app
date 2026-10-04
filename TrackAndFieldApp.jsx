@@ -1282,10 +1282,18 @@ export default function App() {
     const entries = allConditionMode
       ? Object.entries(draws || {})
       : (draws[currentKey] ? [[currentKey, draws[currentKey]]] : []);
+    const timetableOrder = new Map(timetableRows.map((row, index) => [row.key, index]));
     const groups = entries
-      .map(([key, races]) => ({ ...parseDrawKey(key), races: Array.isArray(races) ? races : [] }))
+      .map(([key, races]) => ({ key, ...parseDrawKey(key), races: Array.isArray(races) ? races : [] }))
       .filter(group => group.races.length)
-      .sort((a, b) => `${a.department}${a.gender}${a.event}`.localeCompare(`${b.department}${b.gender}${b.event}`, 'ja'));
+      .sort((a, b) => {
+        const orderA = timetableOrder.get(a.key);
+        const orderB = timetableOrder.get(b.key);
+        if (orderA !== undefined && orderB !== undefined) return orderA - orderB;
+        if (orderA !== undefined) return -1;
+        if (orderB !== undefined) return 1;
+        return `${a.department}${a.gender}${a.event}`.localeCompare(`${b.department}${b.gender}${b.event}`, 'ja');
+      });
     if (!groups.length) {
       alert('PDF出力できるプログラム編成がありません。先に組割りを作成してください。');
       return;
@@ -1300,10 +1308,10 @@ export default function App() {
           const relayOrder = relay
             ? ['r1', 'r2', 'r3', 'r4'].map((key, index) => `${index + 1}走：${athlete.order?.[key] || '未設定'}`).join(' ／ ')
             : '';
-          return `<tr><td class="center">${escapeHtml(item.lane ?? '-')}</td><td class="center">${escapeHtml(athlete.bib || athlete.teamId || '-')}</td><td>${escapeHtml(athlete.name || athlete.teamName || '-')}</td><td>${escapeHtml(athlete.affiliation || '-')}</td>${relay ? `<td>${escapeHtml(relayOrder)}</td>` : ''}<td class="center">${escapeHtml(athlete.pb || '-')}</td></tr>`;
+          return `<tr><td class="center">${escapeHtml(item.lane ?? '-')}</td><td class="center">${escapeHtml(athlete.bib || athlete.teamId || '-')}</td><td>${escapeHtml(athlete.name || athlete.teamName || '-')}</td><td>${escapeHtml(athlete.affiliation || '-')}</td>${relay ? `<td>${escapeHtml(relayOrder)}</td>` : ''}</tr>`;
         }).join('');
-        const columnCount = relay ? 6 : 5;
-        return `<div class="race"><h3>第${escapeHtml(race.raceNumber || '-')}組</h3><table class="race-table"><thead><tr><th class="center">${field ? '試技順' : 'レーン／並び'}</th><th class="center">ID／ゼッケン</th><th>${relay ? 'チーム名' : '氏名'}</th><th>所属</th>${relay ? '<th>1走～4走オーダー</th>' : ''}<th class="center">申込タイム／PB</th></tr></thead><tbody>${rows || `<tr><td colspan="${columnCount}">出場者なし</td></tr>`}</tbody></table></div>`;
+        const columnCount = relay ? 5 : 4;
+        return `<div class="race"><h3>第${escapeHtml(race.raceNumber || '-')}組</h3><table class="race-table"><thead><tr><th class="center">${field ? '試技順' : 'レーン／並び'}</th><th class="center">ID／ゼッケン</th><th>${relay ? 'チーム名' : '氏名'}</th><th>所属</th>${relay ? '<th>1走～4走オーダー</th>' : ''}</tr></thead><tbody>${rows || `<tr><td colspan="${columnCount}">出場者なし</td></tr>`}</tbody></table></div>`;
       }).join('');
       return `<section class="event"><h2>${escapeHtml(`${group.department} ${group.gender} ${group.event}`)}（${group.races.length}組）</h2>${races}</section>`;
     }).join('');
@@ -1312,10 +1320,9 @@ export default function App() {
   };
 
   const generateTimetable = () => {
-
-  const candidates = Object.entries(draws).map(([key, races]) => {
-    const parts = key.split('-');
-    const event = parts.pop() || '';
+    const candidates = Object.entries(draws).map(([key, races]) => {
+      const parts = key.split('-');
+      const event = parts.pop() || '';
       const gender = parts.pop() || '';
       const department = parts.join('-');
       const raceList = Array.isArray(races) ? races : [];
@@ -2308,7 +2315,7 @@ export default function App() {
                     <Printer size={14} /> プログラムPDF出力
                   </button>
                 </div>
-                <p className="-mt-4 text-[11px] text-slate-500 print:hidden">PDF出力は表示中の編成を対象にします。出力後、印刷画面で「PDFに保存」を選択してください。</p>
+                <p className="-mt-4 text-[11px] text-slate-500 print:hidden">PDF出力は表示中の編成をタイムテーブル順に並べ、申込タイム／PBを除いて出力します。出力後、印刷画面で「PDFに保存」を選択してください。</p>
 
                 {allConditionMode ? (
                   Object.keys(draws).length ? (
