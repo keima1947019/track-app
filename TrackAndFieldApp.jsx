@@ -1246,11 +1246,76 @@ export default function App() {
   const handlePrint = () => {
     window.print();
   };
+  const openPdfPrintWindow = (title, content, orientation = 'landscape') => {
+    const popup = window.open('', '_blank', 'width=1200,height=850');
+    if (!popup) {
+      alert('PDF出力用のウィンドウがブロックされました。ポップアップを許可してください。');
+      return;
+    }
+    const pageOrientation = orientation === 'portrait' ? 'portrait' : 'landscape';
+    popup.document.open();
+    popup.document.write(`<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
+      @page{size:A4 ${pageOrientation};margin:12mm}*{box-sizing:border-box}html{color-scheme:light}body{font-family:Arial,"Noto Sans JP",sans-serif;color:#111;font-size:9px;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}h1{font-size:21px;margin:0 0 6px;border-bottom:2px solid #111;padding-bottom:7px}h2{font-size:14px;margin:0 0 7px;background:#e8edf5;padding:6px}h3{font-size:11px;margin:0 0 4px;padding:4px 6px;background:#f3f4f6}.meta{font-size:10px;margin:0 0 10px}.notice{border:1px solid #aaa;padding:7px 9px;margin:0 0 12px;line-height:1.6}.event{margin:0 0 14px}.race{margin:0 0 9px;break-inside:avoid-page}.race-table{width:100%;border-collapse:collapse;table-layout:auto}th,td{border:1px solid #777;padding:4px 5px;text-align:left;vertical-align:top}th{background:#f0f2f5;font-weight:700}td.center,th.center{text-align:center}thead{display:table-header-group}tr{break-inside:avoid}footer{margin-top:12px;color:#555;font-size:8px}@media print{body{padding:0;background:#fff}}
+      </style></head><body><main><h1>${escapeHtml(title)}</h1>${content}<footer>出力日時：${escapeHtml(new Date().toLocaleString('ja-JP'))}</footer></main></body></html>`);
+    popup.document.close();
+    popup.focus();
+    window.setTimeout(() => {
+      if (!popup.closed) popup.print();
+    }, 350);
+  };
+
+  const handlePrintTimetable = () => {
+    if (!timetableRows.length) {
+      alert('PDF出力できるタイムテーブルがありません。先にタイムテーブルを作成してください。');
+      return;
+    }
+    const sections = ['トラック', 'フィールド'].map(venue => {
+      const rows = timetableRows.filter(row => row.venue === venue);
+      if (!rows.length) return '';
+      return `<section class="event"><h2>${escapeHtml(venue)}競技</h2><table class="race-table"><thead><tr><th class="center">順序</th><th class="center">開始時間</th><th class="center">所要時間</th><th class="center">招集開始</th><th class="center">招集完了</th><th>競技名</th><th class="center">場所</th><th class="center">ラウンド</th><th class="center">組数</th><th class="center">参加人数</th><th>招集場所</th></tr></thead><tbody>${rows.map(row => `<tr><td class="center">${escapeHtml(row.order)}</td><td class="center"><strong>${escapeHtml(row.startTime)}</strong></td><td class="center">${escapeHtml(row.durationMinutes)}分</td><td class="center">${escapeHtml(row.callStartTime)}</td><td class="center">${escapeHtml(row.callCompleteTime)}</td><td>${escapeHtml(row.title)}</td><td class="center">${escapeHtml(row.venue)}</td><td class="center">${escapeHtml(row.round)}</td><td class="center">${escapeHtml(row.heats)}</td><td class="center">${escapeHtml(row.participants)}</td><td>${escapeHtml(row.callLocation)}</td></tr>`).join('')}</tbody></table></section>`;
+    }).join('');
+    const content = `<p class="meta">開催日：${escapeHtml(timetableConfig.date || '未設定')}　／　予備日：${escapeHtml(timetableConfig.reserveDate || '未設定')}</p><div class="notice"><strong>招集時間について</strong><br>トラック競技は競技開始時間の${escapeHtml(timetableConfig.trackCallComplete)}分前、フィールド競技は競技開始時間の${escapeHtml(timetableConfig.fieldCallComplete)}分前が招集完了時間です。</div>${sections}`;
+    openPdfPrintWindow('競技日程表・タイムテーブル', content);
+  };
+
+  const handlePrintProgram = () => {
+    const entries = allConditionMode
+      ? Object.entries(draws || {})
+      : (draws[currentKey] ? [[currentKey, draws[currentKey]]] : []);
+    const groups = entries
+      .map(([key, races]) => ({ ...parseDrawKey(key), races: Array.isArray(races) ? races : [] }))
+      .filter(group => group.races.length)
+      .sort((a, b) => `${a.department}${a.gender}${a.event}`.localeCompare(`${b.department}${b.gender}${b.event}`, 'ja'));
+    if (!groups.length) {
+      alert('PDF出力できるプログラム編成がありません。先に組割りを作成してください。');
+      return;
+    }
+    const sections = groups.map(group => {
+      const relay = isRelayEvent(group.event);
+      const field = isFieldEvent(group.event);
+      const races = group.races.map(race => {
+        const lanes = Array.isArray(race.lanes) ? race.lanes : [];
+        const rows = lanes.map(item => {
+          const athlete = item.athlete || {};
+          const relayOrder = relay
+            ? ['r1', 'r2', 'r3', 'r4'].map((key, index) => `${index + 1}走：${athlete.order?.[key] || '未設定'}`).join(' ／ ')
+            : '';
+          return `<tr><td class="center">${escapeHtml(item.lane ?? '-')}</td><td class="center">${escapeHtml(athlete.bib || athlete.teamId || '-')}</td><td>${escapeHtml(athlete.name || athlete.teamName || '-')}</td><td>${escapeHtml(athlete.affiliation || '-')}</td>${relay ? `<td>${escapeHtml(relayOrder)}</td>` : ''}<td class="center">${escapeHtml(athlete.pb || '-')}</td></tr>`;
+        }).join('');
+        const columnCount = relay ? 6 : 5;
+        return `<div class="race"><h3>第${escapeHtml(race.raceNumber || '-')}組</h3><table class="race-table"><thead><tr><th class="center">${field ? '試技順' : 'レーン／並び'}</th><th class="center">ID／ゼッケン</th><th>${relay ? 'チーム名' : '氏名'}</th><th>所属</th>${relay ? '<th>1走～4走オーダー</th>' : ''}<th class="center">申込タイム／PB</th></tr></thead><tbody>${rows || `<tr><td colspan="${columnCount}">出場者なし</td></tr>`}</tbody></table></div>`;
+      }).join('');
+      return `<section class="event"><h2>${escapeHtml(`${group.department} ${group.gender} ${group.event}`)}（${group.races.length}組）</h2>${races}</section>`;
+    }).join('');
+    const scope = allConditionMode ? '全種目' : `${selectedDepartment} ${selectedGender} ${selectedEvent}`;
+    openPdfPrintWindow('プログラム編成・組割り', `<p class="meta">出力範囲：${escapeHtml(scope)}</p>${sections}`);
+  };
 
   const generateTimetable = () => {
-    const candidates = Object.entries(draws).map(([key, races]) => {
-      const parts = key.split('-');
-      const event = parts.pop() || '';
+
+  const candidates = Object.entries(draws).map(([key, races]) => {
+    const parts = key.split('-');
+    const event = parts.pop() || '';
       const gender = parts.pop() || '';
       const department = parts.join('-');
       const raceList = Array.isArray(races) ? races : [];
@@ -1676,10 +1741,11 @@ export default function App() {
                     <button type="button" onClick={generateTimetable} className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold"><Clock size={16} />組割りから自動生成</button>
                     <label className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold cursor-pointer"><Upload size={16} />CSV取込<input type="file" accept=".csv,text/csv" aria-label="タイムテーブルCSVを取り込む" onChange={handleImportTimetableCsv} className="hidden" /></label>
                     <button type="button" onClick={handleDownloadTimetableCsvTemplate} className="flex items-center gap-2 px-4 py-2.5 bg-slate-500 hover:bg-slate-600 text-white rounded-lg text-sm font-bold"><Download size={16} />CSVテンプレート</button>
-                    <button type="button" onClick={handlePrint} disabled={!timetableRows.length} className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 hover:bg-slate-800 disabled:opacity-40 text-white rounded-lg text-sm font-bold"><Printer size={16} />印刷</button>
+                    <button type="button" onClick={handlePrintTimetable} disabled={!timetableRows.length} className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 hover:bg-slate-800 disabled:opacity-40 text-white rounded-lg text-sm font-bold"><Printer size={16} />PDF出力</button>
                     <button type="button" onClick={handleExportTimetableCsv} disabled={!timetableRows.length} className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-sm font-bold"><Download size={16} />CSV出力</button>
                   </div>
                   <p className="mt-2 text-[11px] text-slate-500">CSV取込は現在のタイムテーブルを置き換えます。出力したCSV、またはテンプレートを編集して取り込んでください。</p>
+                  <p className="mt-1 text-[11px] text-slate-500">PDF出力後に表示される印刷画面で「PDFに保存」を選択してください。</p>
                 </div>
                 <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm" id="timetable-preview">
                   <div className="text-center mb-5"><h1 className="text-xl font-black text-slate-900">競技日程表</h1><p className="text-sm font-bold text-slate-700">{timetableConfig.date || '開催日未設定'}<span className="ml-8 text-xs font-normal text-slate-500">予備日：{timetableConfig.reserveDate || '未設定'}</span></p></div>
@@ -2233,7 +2299,16 @@ export default function App() {
                   >
                     <Shuffle size={14} /> {allConditionMode ? '全種目の組割りを一括生成' : '組割り編成を実行'}
                   </button>
+                  <button
+                    type="button"
+                    onClick={handlePrintProgram}
+                    disabled={!Object.keys(draws).length}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-bold rounded-xl text-xs transition-colors shadow-sm w-full md:w-auto justify-center"
+                  >
+                    <Printer size={14} /> プログラムPDF出力
+                  </button>
                 </div>
+                <p className="-mt-4 text-[11px] text-slate-500 print:hidden">PDF出力は表示中の編成を対象にします。出力後、印刷画面で「PDFに保存」を選択してください。</p>
 
                 {allConditionMode ? (
                   Object.keys(draws).length ? (
