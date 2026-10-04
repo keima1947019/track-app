@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Trophy, Users, LayoutList, FileEdit, Printer, Radio,
   Search, CheckCircle, Shuffle, Upload, LogOut, Lock, Shield, AlertTriangle,
-  Plus, Trash2, Award, Download, UserCheck, Edit3, X, Filter, Flag, UserPlus
+  Plus, Trash2, Award, Download, UserCheck, Edit3, X, Filter, Flag, UserPlus, CalendarDays, Clock
 } from 'lucide-react';
 
 const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || '/api';
@@ -10,10 +10,68 @@ const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VIT
 // 部門表記
 const DEPARTMENTS = ['一般', '高校', '中学', '小学', '壮年'];
 const GENDERS = ['男子', '女子', '混合'];
-const INDIVIDUAL_EVENTS = ['100m', '200m', '800m', '1500m', '3000m', '走り幅跳び', '走高跳', '砲丸投'];
+const INDIVIDUAL_EVENTS = ['100m', '200m', '800m', '1500m', '3000m', '110mH（ハードル）', '100mH（ハードル）', '走り幅跳び', '走高跳', '砲丸投'];
 const RELAY_EVENTS = ['4×100mR', '4×400mR'];
 const ALL_EVENTS = [...INDIVIDUAL_EVENTS, ...RELAY_EVENTS];
 const STORAGE_KEY = 'track-and-field-meet-data-v1';
+const AUTH_TOKEN_KEY = 'track-app-auth-token';
+const AUTH_USER_KEY = 'track-app-auth-user';
+
+// ログインセッション（トークン＋ユーザー情報）をブラウザに保持する。
+// 画面更新（リロード）直後でも保存済み情報からログイン状態を復元できるようにするためのヘルパー。
+const readStoredSession = () => {
+  if (typeof window === 'undefined') return { token: '', user: null };
+  let token = '';
+  let cachedUser = null;
+  try {
+    token = window.localStorage.getItem(AUTH_TOKEN_KEY) || '';
+    const rawUser = window.localStorage.getItem(AUTH_USER_KEY);
+    if (rawUser) {
+      const parsed = JSON.parse(rawUser);
+      if (parsed && typeof parsed === 'object') cachedUser = parsed;
+    }
+  } catch (error) {
+    console.warn('保存済みのログイン情報を読み込めませんでした。', error);
+  }
+  return { token, user: token ? cachedUser : null };
+};
+
+const persistSession = (token, sessionUser) => {
+  if (typeof window === 'undefined') return;
+  try {
+    if (token) {
+      window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+      if (sessionUser) window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(sessionUser));
+    } else {
+      window.localStorage.removeItem(AUTH_TOKEN_KEY);
+      window.localStorage.removeItem(AUTH_USER_KEY);
+    }
+  } catch (error) {
+    console.warn('ログイン情報を保存できませんでした。', error);
+  }
+};
+
+// 認証APIが返すエラーコードを、運営担当者向けの日本語メッセージに変換する
+const AUTH_ERROR_MESSAGES = {
+  username_already_exists: 'そのログインIDは既に登録されています。',
+  email_already_exists: 'そのログインIDは既に登録されています。',
+  duplicate_user: 'そのログインIDは既に登録されています。',
+  password_too_short: 'パスワードは12文字以上で入力してください。',
+  invalid_password: 'パスワードは12文字以上で入力してください。',
+  weak_password: 'パスワードは12文字以上で入力してください。',
+  missing_fields: 'ログインID・表示名・初期パスワードをすべて入力してください。',
+  unauthorized: 'ログインセッションが切れています。もう一度ログインしてください。',
+  invalid_credentials: 'ログインIDまたはパスワードが正しくありません。'
+};
+
+const describeAuthError = (error, fallback) => {
+  const code = String((error && error.message) || error || '');
+  if (AUTH_ERROR_MESSAGES[code]) return AUTH_ERROR_MESSAGES[code];
+  if (code.includes('already_exists') || code.includes('already_used')) return 'そのログインIDは既に登録されています。';
+  if (code.toLowerCase().includes('password')) return 'パスワードは12文字以上で入力してください。';
+  if (code.includes('unauthorized') || code.includes('session_expired') || code.includes('token')) return 'ログインセッションが切れています。もう一度ログインしてください。';
+  return fallback;
+};
 
 const createId = (prefix) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -56,6 +114,16 @@ const parsePerformanceValue = (value) => {
   return parseNumericRecord(text);
 };
 
+const timeToMinutes = (value) => {
+  const match = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+};
+
+const minutesToTime = (value) => {
+  const normalized = ((Number(value) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')}`;
+};
+
 const escapeHtml = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
   .replace(/</g, '&lt;')
@@ -95,11 +163,81 @@ const normalizeDepartment = (dept) => {
 // リレー種目判定
 const isRelayEvent = (ev) => ev ? (ev.includes('R') || ev.includes('リレー')) : false;
 
+const isHurdleEvent = (ev) => ev === '110mH（ハードル）' || ev === '100mH（ハードル）';
+const isIndividualEventAllowed = (department, gender, event) => {
+  if (event === '110mH（ハードル）') return department === '中学' && gender === '男子';
+  if (event === '100mH（ハードル）') return department === '中学' && gender === '女子';
+  return INDIVIDUAL_EVENTS.includes(event);
+};
+const getAvailableIndividualEvents = (department, gender) => INDIVIDUAL_EVENTS
+  .filter(event => isIndividualEventAllowed(department, gender, event));
+
 // フィールド種目判定
 const isFieldEvent = (ev) => ev ? (ev.includes('跳') || ev.includes('投') || ev.includes('ジャンプ') || ev.includes('高')) : false;
 
 // タイム決勝（1組限定編成）種目判定 (1500m, 3000m, フィールド種目)
 const isSingleRaceEvent = (ev) => ev === '1500m' || ev === '3000m' || isFieldEvent(ev);
+
+// 種目・組数を考慮した初期所要時間（分）。生成後は日程表上で個別に変更できます。
+const estimateTimetableDuration = (event, heats, participants, field) => {
+  if (field) return Math.max(45, 20 + Number(heats || 1) * 10);
+  const perHeat = event === '3000m' ? 12
+    : event === '1500m' ? 8
+      : event === '800m' ? 5
+        : event === '200m' || event === '110mH（ハードル）' || event === '100mH（ハードル）' ? 4
+          : event === '4×400mR' ? 8
+            : isRelayEvent(event) ? 6 : 3;
+  const setup = event === '3000m' ? 5 : 2;
+  return Math.max(5, setup + perHeat * Math.max(1, Number(heats || 1)) + (Number(participants || 0) > 0 ? 1 : 0));
+};
+
+const parseDrawKey = (key) => {
+  const parts = String(key).split('-');
+  const event = parts.pop() || '';
+  const gender = parts.pop() || '';
+  return { department: parts.join('-'), gender, event };
+};
+
+const recalculateTimetableRows = (rows, config, anchorKey = null, requestedStart = null) => {
+  const next = rows.map(row => ({ ...row }));
+  ['トラック', 'フィールド'].forEach(venue => {
+    const indices = next.map((row, index) => row.venue === venue ? index : -1).filter(index => index >= 0);
+    if (!indices.length) return;
+    const anchorIndex = indices.find(index => next[index].key === anchorKey);
+    const getGap = row => Math.max(
+      Number(row.durationMinutes) || 0,
+      venue === 'フィールド' ? Number(config.fieldInterval) : Number(config.trackInterval)
+    );
+    if (anchorIndex === undefined) {
+      let clock = timeToMinutes(venue === 'フィールド' ? config.fieldStart : config.trackStart) ?? (venue === 'フィールド' ? 9 * 60 : 8 * 60 + 45);
+      indices.forEach(index => {
+        next[index].startTime = minutesToTime(clock);
+        clock += getGap(next[index]);
+      });
+    } else {
+      next[anchorIndex].startTime = minutesToTime(requestedStart);
+      const anchorPosition = indices.indexOf(anchorIndex);
+      for (let position = anchorPosition - 1; position >= 0; position -= 1) {
+        const currentIndex = indices[position];
+        const nextIndex = indices[position + 1];
+        next[currentIndex].startTime = minutesToTime(timeToMinutes(next[nextIndex].startTime) - getGap(next[currentIndex]));
+      }
+      for (let position = anchorPosition + 1; position < indices.length; position += 1) {
+        const currentIndex = indices[position];
+        const previousIndex = indices[position - 1];
+        next[currentIndex].startTime = minutesToTime(timeToMinutes(next[previousIndex].startTime) + getGap(next[previousIndex]));
+      }
+    }
+    indices.forEach(index => {
+      const start = timeToMinutes(next[index].startTime);
+      const callStart = venue === 'フィールド' ? config.fieldCallStart : config.trackCallStart;
+      const callComplete = venue === 'フィールド' ? config.fieldCallComplete : config.trackCallComplete;
+      next[index].callStartTime = minutesToTime(start - callStart);
+      next[index].callCompleteTime = minutesToTime(start - callComplete);
+    });
+  });
+  return next.map((row, index) => ({ ...row, order: index + 1 }));
+};
 
 // JWTパース
 const parseJwt = (token) => {
@@ -161,10 +299,21 @@ const buildGeneratedRaces = (targetEntries, event, lanesPerRace) => {
 export default function App() {
   const [activeTab, setActiveTab] = useState('live');
   const [entrySubTab, setEntrySubTab] = useState('individual'); // 'individual' | 'relay'
-  const [user, setUser] = useState(null);
-  const [authToken, setAuthToken] = useState(() => window.localStorage.getItem('track-app-auth-token') || '');
+  // 画面更新（リロード）直後は、保存済みのトークン＋ユーザー情報から
+  // ログイン状態を同期的に復元し、ログイン画面へ戻らないようにする
+  const [initialSession] = useState(readStoredSession);
+  const [user, setUser] = useState(initialSession.user);
+  const [authToken, setAuthToken] = useState(initialSession.token);
+  const [authRestoring, setAuthRestoring] = useState(Boolean(initialSession.token) && !initialSession.user);
+  const [sessionWarning, setSessionWarning] = useState('');
+  const [authCheckNonce, setAuthCheckNonce] = useState(0);
+  const skipNextAuthValidation = useRef('');
   const [loginId, setLoginId] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [userEdit, setUserEdit] = useState({ username: '', displayName: '', password: '' });
+  const [userEditMessage, setUserEditMessage] = useState('');
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminUsersMessage, setAdminUsersMessage] = useState('');
   const [authError, setAuthError] = useState('');
 
   // アプリデータ State
@@ -177,13 +326,25 @@ export default function App() {
 
   // 選択・フィルター State
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedDepartment, setSelectedDepartment] = useState('一般');
-  const [selectedGender, setSelectedGender] = useState('男子');
-  const [selectedEvent, setSelectedEvent] = useState('100m');
+  const [selectedDepartment, setSelectedDepartment] = useState('');
+  const [selectedGender, setSelectedGender] = useState('');
+  const [selectedEvent, setSelectedEvent] = useState('');
+  const [resultSummaryMode, setResultSummaryMode] = useState('top8');
   const [lanesPerRace, setLanesPerRace] = useState(8);
+  const [timetableConfig, setTimetableConfig] = useState({
+    date: '', reserveDate: '', venue: 'トラック',
+    trackStart: '08:45', fieldStart: '09:00',
+    trackInterval: 10, fieldInterval: 15,
+    trackCallStart: 30, trackCallComplete: 15,
+    fieldCallStart: 40, fieldCallComplete: 20
+  });
+  const [timetableRows, setTimetableRows] = useState([]);
+  const [draggingTimetableIndex, setDraggingTimetableIndex] = useState(null);
 
   // エントリー追加・編集 State
   const [editingId, setEditingId] = useState(null);
+  const [selectedIndividualIds, setSelectedIndividualIds] = useState([]);
+  const [selectedRelayIds, setSelectedRelayIds] = useState([]);
   const [newIndividual, setNewIndividual] = useState({
     bib: '', name: '', affiliation: '', department: '一般', gender: '男子', event: '100m', pb: ''
   });
@@ -198,13 +359,71 @@ export default function App() {
     return getPageContext().publicCode || createPublicCode();
   });
   const { isAdminPage, isPublicLivePage, isForbiddenPage } = getPageContext();
-  const canRenderApp = !isForbiddenPage && (!isAdminPage || user);
+  // 403（公開URLでも管理URLでもない）場合のみ非表示。ログイン状態の復元中も画面は表示し続ける
+  const canRenderApp = !isForbiddenPage;
 
   useEffect(() => {
     document.title = isForbiddenPage
       ? '403エラー'
       : (isAdminPage ? (user ? '陸上競技記録管理システム' : '管理者ログイン') : '速報・リアルタイム結果');
   }, [user, isAdminPage, isForbiddenPage]);
+
+  useEffect(() => {
+    if (!authToken) {
+      setAuthRestoring(false);
+      return undefined;
+    }
+    if (skipNextAuthValidation.current === authToken) {
+      skipNextAuthValidation.current = '';
+      setAuthRestoring(false);
+      return undefined;
+    }
+    let cancelled = false;
+    let retryTimer = null;
+    let attempt = 0;
+    const validateSession = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/auth/me`, { headers: { Authorization: `Bearer ${authToken}` }, cache: 'no-store' });
+        if (cancelled) return;
+        if (response.ok) {
+          const body = await response.json().catch(() => ({}));
+          if (cancelled) return;
+          if (body.user) {
+            setUser(body.user);
+            persistSession(authToken, body.user);
+            setUserEdit({ username: body.user.email, displayName: body.user.name, password: '' });
+          }
+          setSessionWarning('');
+          setAuthRestoring(false);
+          return;
+        }
+        if (response.status === 401 || response.status === 403) {
+          // トークンがサーバー側で無効になった場合だけログイン状態を解除する
+          persistSession('', null);
+          setUser(null);
+          setAuthToken('');
+          setSessionWarning('');
+          setAuthError('ログインの有効期限が切れました。もう一度ログインしてください。');
+          setAuthRestoring(false);
+          return;
+        }
+        throw new Error(`session_check_failed_${response.status}`);
+      } catch (error) {
+        if (cancelled) return;
+        // 一時的な通信障害では確立済みのログイン状態を消去せず、自動的に再試行します。
+        attempt += 1;
+        if (attempt <= 3) {
+          retryTimer = window.setTimeout(validateSession, 1200 * attempt);
+          return;
+        }
+        console.warn('ログイン状態の確認に失敗しました。', error);
+        setAuthRestoring(false);
+        setSessionWarning('ログイン状態を確認できませんでした（通信エラー）。セッションは保持されています。');
+      }
+    };
+    validateSession();
+    return () => { cancelled = true; if (retryTimer) window.clearTimeout(retryTimer); };
+  }, [authToken, authCheckNonce]);
 
   // ブラウザ内に大会データを保存し、リロード後も復元する
   useEffect(() => {
@@ -219,6 +438,7 @@ export default function App() {
           || (state?.relayTeams?.length || 0) > 0
           || Object.keys(state?.draws || {}).length > 0
           || Object.keys(state?.results || {}).length > 0
+          || (state?.timetableRows?.length || 0) > 0
         );
         // DB初期化直後だけ、既存ブラウザのlocalStorageを初回移行元として利用します。
         if (!hasData(parsed)) {
@@ -233,6 +453,8 @@ export default function App() {
         if (Array.isArray(parsed.relayTeams)) setRelayTeams(parsed.relayTeams);
         if (parsed.draws && typeof parsed.draws === 'object') setDraws(parsed.draws);
         if (parsed.results && typeof parsed.results === 'object') setResults(parsed.results);
+        if (parsed.timetableConfig && typeof parsed.timetableConfig === 'object') setTimetableConfig(prev => ({ ...prev, ...parsed.timetableConfig }));
+        if (Array.isArray(parsed.timetableRows)) setTimetableRows(parsed.timetableRows);
       } catch (apiError) {
         console.warn('共有APIからの復元に失敗したため、ローカル保存を確認します。', apiError);
         try {
@@ -243,6 +465,8 @@ export default function App() {
             if (!cancelled && Array.isArray(parsed.relayTeams)) setRelayTeams(parsed.relayTeams);
             if (!cancelled && parsed.draws && typeof parsed.draws === 'object') setDraws(parsed.draws);
             if (!cancelled && parsed.results && typeof parsed.results === 'object') setResults(parsed.results);
+            if (!cancelled && parsed.timetableConfig && typeof parsed.timetableConfig === 'object') setTimetableConfig(prev => ({ ...prev, ...parsed.timetableConfig }));
+            if (!cancelled && Array.isArray(parsed.timetableRows)) setTimetableRows(parsed.timetableRows);
           }
         } catch (localError) {
           console.warn('大会データの復元に失敗しました。', localError);
@@ -257,7 +481,7 @@ export default function App() {
 
   useEffect(() => {
     if (!isStorageHydrated) return;
-    const state = { individualEntries, relayTeams, draws, results };
+    const state = { individualEntries, relayTeams, draws, results, timetableConfig, timetableRows };
     try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (error) { console.warn('ローカル保存に失敗しました。', error); }
     if (!user || !authToken) return;
     const timer = window.setTimeout(async () => {
@@ -271,7 +495,7 @@ export default function App() {
       } catch (error) { console.warn('共有APIへの接続に失敗しました。', error); }
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [isStorageHydrated, user, authToken, individualEntries, relayTeams, draws, results]);
+  }, [isStorageHydrated, user, authToken, individualEntries, relayTeams, draws, results, timetableConfig, timetableRows]);
 
   useEffect(() => {
     if (!editingTeamForOrder) return undefined;
@@ -296,9 +520,16 @@ export default function App() {
         setAuthError('IDまたはパスワードが正しくありません。');
         return;
       }
+      if (!verified.token) {
+        setAuthError('認証トークンを取得できませんでした。管理者に確認してください。');
+        return;
+      }
+      skipNextAuthValidation.current = verified.token;
+      persistSession(verified.token, verified.user);
       setAuthToken(verified.token);
-      window.localStorage.setItem('track-app-auth-token', verified.token);
       setUser(verified.user);
+      setUserEdit({ username: verified.user.email, displayName: verified.user.name, password: '' });
+      setSessionWarning('');
       setLoginPassword('');
     } catch (error) {
       console.warn('ログインAPIに接続できません。', error);
@@ -309,8 +540,91 @@ export default function App() {
   const handleLogout = () => {
     setUser(null);
     setAuthToken('');
-    window.localStorage.removeItem('track-app-auth-token');
+    persistSession('', null);
+    setSessionWarning('');
     setActiveTab('live');
+  };
+
+  // 401/403（セッション失効）時の共通処理。保存済みセッションを破棄して再ログインを促す
+  const handleSessionExpired = (message = 'ログインの有効期限が切れました。もう一度ログインしてください。') => {
+    persistSession('', null);
+    setUser(null);
+    setAuthToken('');
+    setSessionWarning('');
+    setAuthError(message);
+  };
+
+  const handleUpdateUser = async (event) => {
+    event.preventDefault();
+    setUserEditMessage('');
+    if (!authToken) {
+      setUserEditMessage('ログインセッションが切れています。もう一度ログインしてください。');
+      return;
+    }
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/me`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ ...userEdit, email: userEdit.username, name: userEdit.displayName, displayName: userEdit.displayName })
+      });
+      const body = await response.json().catch(() => ({}));
+      if (response.status === 401 || response.status === 403) {
+        handleSessionExpired();
+        setUserEditMessage('ログインセッションが切れています。もう一度ログインしてください。');
+        return;
+      }
+      if (!response.ok) throw new Error(body.error || 'user_update_failed');
+      if (!body.user) throw new Error('user_update_failed');
+      setUser(body.user);
+      persistSession(authToken, body.user);
+      setUserEdit(prev => ({ ...prev, username: body.user.email, displayName: body.user.name, password: '' }));
+      setUserEditMessage('ユーザー情報を更新しました。');
+    } catch (error) {
+      setUserEditMessage(describeAuthError(error, 'ユーザー情報の更新に失敗しました。入力内容とログイン状態をご確認ください。'));
+    }
+  };
+
+  const loadAdminUsers = async () => {
+    if (!authToken) return;
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/users`, { headers: { Authorization: `Bearer ${authToken}` } });
+      if (response.ok) {
+        const body = await response.json().catch(() => ({}));
+        setAdminUsers(Array.isArray(body.users) ? body.users : []);
+        return;
+      }
+      if (response.status === 401 || response.status === 403) setAdminUsersMessage('ログインセッションが切れています。もう一度ログインしてください。');
+    } catch (error) {
+      console.warn('管理ユーザー一覧の取得に失敗しました。', error);
+    }
+  };
+
+  useEffect(() => {
+    if (user && activeTab === 'userSettings') loadAdminUsers();
+  }, [user, activeTab, authToken]);
+
+  const handleDeleteAdminUser = async (id) => {
+    if (!window.confirm('このユーザーを削除しますか？')) return;
+    if (!authToken) {
+      setAdminUsersMessage('ログインセッションが切れています。もう一度ログインしてください。');
+      return;
+    }
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/users/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${authToken}` } });
+      if (response.ok) {
+        setAdminUsersMessage('ユーザーを削除しました。');
+        await loadAdminUsers();
+        return;
+      }
+      if (response.status === 401 || response.status === 403) {
+        handleSessionExpired();
+        setAdminUsersMessage('ログインセッションが切れています。もう一度ログインしてください。');
+        return;
+      }
+      setAdminUsersMessage('現在ログイン中のユーザーは削除できません。');
+    } catch (error) {
+      setAdminUsersMessage('通信エラーのため、ユーザーを削除できませんでした。');
+    }
   };
 
   // --- 登録機能 ---
@@ -338,7 +652,7 @@ export default function App() {
     e.preventDefault();
     const cleaned = { ...newIndividual, name: newIndividual.name.trim(), affiliation: newIndividual.affiliation.trim() };
     if (!cleaned.name || !cleaned.affiliation) return;
-    if (!INDIVIDUAL_EVENTS.includes(cleaned.event) || !DEPARTMENTS.includes(cleaned.department) || !GENDERS.includes(cleaned.gender)) return;
+    if (!isIndividualEventAllowed(cleaned.department, cleaned.gender, cleaned.event) || !DEPARTMENTS.includes(cleaned.department) || !GENDERS.includes(cleaned.gender)) return;
 
     const savedEntry = { ...cleaned, id: editingId || createId('ind') };
     const nextIndividuals = editingId
@@ -348,7 +662,7 @@ export default function App() {
     rebuildDrawsFor([{ department: cleaned.department, gender: cleaned.gender, event: cleaned.event }], nextIndividuals, relayTeams);
     if (editingId) setEditingId(null);
 
-    setNewIndividual({ bib: '', name: '', affiliation: '', department: selectedDepartment, gender: selectedGender, event: '100m', pb: '' });
+    setNewIndividual({ bib: '', name: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '100m', pb: '' });
   };
 
   const handleSaveRelayTeam = (e) => {
@@ -369,7 +683,7 @@ export default function App() {
     rebuildDrawsFor([{ department: cleaned.department, gender: cleaned.gender, event: cleaned.event }], individualEntries, nextRelays);
     if (editingId) setEditingId(null);
 
-    setNewRelayTeam({ teamId: '', teamName: '', affiliation: '', department: selectedDepartment, gender: selectedGender, event: '4×100mR', pb: '' });
+    setNewRelayTeam({ teamId: '', teamName: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '4×100mR', pb: '' });
   };
 
   const handleStartEditIndividual = (entry) => {
@@ -384,8 +698,8 @@ export default function App() {
 
   const handleCancelEdit = () => {
     setEditingId(null);
-    setNewIndividual({ bib: '', name: '', affiliation: '', department: selectedDepartment, gender: selectedGender, event: '100m', pb: '' });
-    setNewRelayTeam({ teamId: '', teamName: '', affiliation: '', department: selectedDepartment, gender: selectedGender, event: '4×100mR', pb: '' });
+    setNewIndividual({ bib: '', name: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '100m', pb: '' });
+    setNewRelayTeam({ teamId: '', teamName: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '4×100mR', pb: '' });
   };
 
   // CSV インポート（引用符・カンマ・改行コードに対応）
@@ -416,7 +730,7 @@ export default function App() {
           if (!cols[1] || !cols[2] || !RELAY_EVENTS.includes(eventName)) return;
           newRelays.push({ id: createId(`relay-${index}`), teamId: cols[0] || '', teamName: cols[1], affiliation: cols[2], department, gender, event: eventName, pb: cols[6] || '', order: { r1: cols[7] || '', r2: cols[8] || '', r3: cols[9] || '', r4: cols[10] || '' } });
         } else {
-          if (!cols[1] || !cols[2] || !INDIVIDUAL_EVENTS.includes(eventName)) return;
+          if (!cols[1] || !cols[2] || !isIndividualEventAllowed(department, gender, eventName)) return;
           newIndividuals.push({ id: createId(`ind-${index}`), bib: cols[0] || '', name: cols[1], affiliation: cols[2], department, gender, event: eventName, pb: cols[6] || '' });
         }
       });
@@ -467,16 +781,64 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+  const handleExportSelectedEntriesCsv = () => {
+    const selectedIndividuals = individualEntries.filter(entry => selectedIndividualIds.includes(entry.id));
+    const selectedRelays = relayTeams.filter(team => selectedRelayIds.includes(team.id));
+    const selectedEntries = [
+      ...selectedIndividuals.map(entry => ({ type: '個人', id: entry.bib, name: entry.name, affiliation: entry.affiliation, department: entry.department, gender: entry.gender, event: entry.event, record: entry.pb, order: {} })),
+      ...selectedRelays.map(team => ({ type: 'リレー', id: team.teamId, name: team.teamName, affiliation: team.affiliation, department: team.department, gender: team.gender, event: team.event, record: team.pb, order: team.order || {} }))
+    ];
+    if (!selectedEntries.length) {
+      alert('CSV出力するエントリーをチェックしてください。');
+      return;
+    }
+    const headers = ['種別', 'ID/ゼッケン', '氏名/チーム名', '所属団体', '部門', '性別', '種目', '記録', '1走', '2走', '3走', '4走'];
+    const rows = selectedEntries.map(entry => [entry.type, entry.id, entry.name, entry.affiliation, entry.department, entry.gender, entry.event, entry.record || '', entry.order.r1 || '', entry.order.r2 || '', entry.order.r3 || '', entry.order.r4 || '']);
+    const csvCell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csv = [headers, ...rows].map(row => row.map(csvCell).join(',')).join('\n');
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `track-and-field-selected-entries-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const handleDeleteIndividual = (id) => {
     if (window.confirm('この選手エントリーを削除しますか？')) {
       setIndividualEntries(prev => prev.filter(e => e.id !== id));
+      setSelectedIndividualIds(prev => prev.filter(selectedId => selectedId !== id));
     }
   };
 
   const handleDeleteRelay = (id) => {
     if (window.confirm('このリレーチームエントリーを削除しますか？')) {
       setRelayTeams(prev => prev.filter(t => t.id !== id));
+      setSelectedRelayIds(prev => prev.filter(selectedId => selectedId !== id));
     }
+  };
+
+  const handleBulkDeleteIndividuals = () => {
+    if (!selectedIndividualIds.length) return;
+    if (!window.confirm(`選択した${selectedIndividualIds.length}件の個人エントリーを削除しますか？この操作は元に戻せません。`)) return;
+    const selected = individualEntries.filter(entry => selectedIndividualIds.includes(entry.id));
+    const nextIndividuals = individualEntries.filter(entry => !selectedIndividualIds.includes(entry.id));
+    setIndividualEntries(nextIndividuals);
+    setSelectedIndividualIds([]);
+    rebuildDrawsFor(selected.map(entry => ({ department: entry.department, gender: entry.gender, event: entry.event })), nextIndividuals, relayTeams);
+  };
+
+  const handleBulkDeleteRelays = () => {
+    if (!selectedRelayIds.length) return;
+    if (!window.confirm(`選択した${selectedRelayIds.length}件のリレーチームを削除しますか？この操作は元に戻せません。`)) return;
+    const selected = relayTeams.filter(team => selectedRelayIds.includes(team.id));
+    const nextRelays = relayTeams.filter(team => !selectedRelayIds.includes(team.id));
+    setRelayTeams(nextRelays);
+    setSelectedRelayIds([]);
+    rebuildDrawsFor(selected.map(team => ({ department: team.department, gender: team.gender, event: team.event })), individualEntries, nextRelays);
   };
 
   const findEntryById = (id) => {
@@ -489,28 +851,31 @@ export default function App() {
 
   // 2. 自動組割り編成 (1500m/3000m/フィールド種目は1組のみに固定)
   const generateDraws = () => {
-    const key = `${selectedDepartment}-${selectedGender}-${selectedEvent}`;
-    const isRelay = isRelayEvent(selectedEvent);
     const effectiveLanes = Number.isInteger(lanesPerRace) && lanesPerRace >= 4 ? lanesPerRace : 6;
-
-    let targetEntries = [];
-    if (isRelay) {
-      targetEntries = relayTeams
-        .filter(t => t.department === selectedDepartment && t.gender === selectedGender && t.event === selectedEvent)
-        .map(t => ({ id: t.id, bib: t.teamId, name: t.teamName, affiliation: t.affiliation, department: t.department, gender: t.gender, event: t.event, pb: t.pb, order: t.order, isRelay: true }));
-    } else {
-      targetEntries = individualEntries
-        .filter(e => e.department === selectedDepartment && e.gender === selectedGender && e.event === selectedEvent)
-        .map(e => ({ id: e.id, bib: e.bib, name: e.name, affiliation: e.affiliation, department: e.department, gender: e.gender, event: e.event, pb: e.pb, isRelay: false }));
-    }
-    
-    if (targetEntries.length === 0) {
-      alert('該当する条件（部門・性別・種目）のエントリーデータが存在しません。');
+    const conditions = allConditionMode
+      ? [...individualEntries, ...relayTeams]
+        .map(entry => ({ department: entry.department, gender: entry.gender, event: entry.event }))
+        .filter((condition, index, list) => list.findIndex(item => item.department === condition.department && item.gender === condition.gender && item.event === condition.event) === index)
+      : [{ department: selectedDepartment, gender: selectedGender, event: selectedEvent }];
+    if (!conditions.length) {
+      alert('組割りを作成できるエントリーデータがありません。');
       return;
     }
-
-    const generatedRaces = buildGeneratedRaces(targetEntries, selectedEvent, effectiveLanes);
-    setDraws(prev => ({ ...prev, [key]: generatedRaces }));
+    const generated = {};
+    let generatedCount = 0;
+    conditions.forEach(condition => {
+      const relay = isRelayEvent(condition.event);
+      const targetEntries = relay
+        ? relayTeams.filter(t => t.department === condition.department && t.gender === condition.gender && t.event === condition.event)
+          .map(t => ({ id: t.id, bib: t.teamId, name: t.teamName, affiliation: t.affiliation, department: t.department, gender: t.gender, event: t.event, pb: t.pb, order: t.order, isRelay: true }))
+        : individualEntries.filter(e => e.department === condition.department && e.gender === condition.gender && e.event === condition.event)
+          .map(e => ({ id: e.id, bib: e.bib, name: e.name, affiliation: e.affiliation, department: e.department, gender: e.gender, event: e.event, pb: e.pb, isRelay: false }));
+      if (!targetEntries.length) return;
+      generated[`${condition.department}-${condition.gender}-${condition.event}`] = buildGeneratedRaces(targetEntries, condition.event, effectiveLanes);
+      generatedCount += 1;
+    });
+    setDraws(prev => ({ ...prev, ...generated }));
+    alert(allConditionMode ? `${generatedCount}種目の組割りを一括生成しました。` : '組割りを生成しました。');
   };
 
   // 3-A. トラック種目: 着順順入力ハンドラー（レーン番号を入力すると選手情報を自動補完）
@@ -655,8 +1020,11 @@ export default function App() {
   };
 
   const handleRandomizeResults = () => {
-    const races = draws[currentKey];
-    if (!races?.length) {
+    const targets = allConditionMode
+      ? Object.entries(draws).map(([key, races]) => ({ key, races, event: parseDrawKey(key).event }))
+      : [{ key: currentKey, races: draws[currentKey], event: selectedEvent }];
+    const validTargets = targets.filter(target => target.races?.length);
+    if (!validTargets.length) {
       alert('先にプログラム編成・組割りを作成してください。');
       return;
     }
@@ -665,15 +1033,15 @@ export default function App() {
     const shuffled = (items) => [...items].sort(() => Math.random() - 0.5);
     const randomWind = () => `+${randomBetween(0, 2).toFixed(1)}`;
     const randomTime = (event, rank) => {
-      const base = event === '800m' ? 125 : event === '1500m' ? 250 : event === '3000m' ? 570 : isRelayEvent(event) ? 42 : 11;
-      const spread = event === '800m' ? 18 : event === '1500m' ? 35 : event === '3000m' ? 70 : isRelayEvent(event) ? 5 : 2.5;
+      const base = event === '800m' ? 125 : event === '1500m' ? 250 : event === '3000m' ? 570 : isRelayEvent(event) ? 42 : isHurdleEvent(event) ? 16 : 11;
+      const spread = event === '800m' ? 18 : event === '1500m' ? 35 : event === '3000m' ? 70 : isRelayEvent(event) ? 5 : isHurdleEvent(event) ? 3 : 2.5;
       return (base + randomBetween(0, spread) + rank * 0.01).toFixed(2);
     };
     const generatedResults = {};
 
-    races.forEach(race => {
-      const raceKey = `${currentKey}-${race.raceNumber}`;
-      if (isFieldEvent(selectedEvent)) {
+    validTargets.forEach(target => target.races.forEach(race => {
+      const raceKey = `${target.key}-${race.raceNumber}`;
+      if (isFieldEvent(target.event)) {
         const fieldResults = race.lanes.map(item => {
           const attempts = Array.from({ length: 5 }, () => randomBetween(4.5, 7.5).toFixed(2));
           return { athleteId: item.athlete.id, time: Math.max(...attempts.map(Number)).toFixed(2), status: 'OK', rank: '-', wind: randomWind(), attempts };
@@ -685,14 +1053,15 @@ export default function App() {
           rank: index + 1,
           lane: String(item.lane),
           athleteId: item.athlete.id,
-          time: randomTime(selectedEvent, index),
+          time: randomTime(target.event, index),
           wind: randomWind(),
           status: 'OK'
         }));
       }
-    });
+    }));
 
     setResults(prev => ({ ...prev, ...generatedResults }));
+    alert(allConditionMode ? `${validTargets.length}競技の結果をランダム入力しました。` : '選択中の競技にランダム結果を入力しました。');
   };
 
   const handleExportResultsCsv = () => {
@@ -731,6 +1100,65 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+  const getResultSummaryGroups = (limit = null) => {
+    const groups = {};
+    Object.entries(results).forEach(([raceKey, raceResults]) => {
+      const raceNumber = String(raceKey).split('-').pop() || '';
+      const meta = parseDrawKey(String(raceKey).slice(0, -(raceNumber.length + 1)));
+      (Array.isArray(raceResults) ? raceResults : []).forEach(result => {
+        const target = findEntryById(result.athleteId);
+        if (!target || (!result.time && result.status !== 'DNS' && result.status !== 'DQ' && result.status !== 'NM')) return;
+        const groupKey = `${meta.department}-${meta.gender}-${meta.event}`;
+        if (!groups[groupKey]) groups[groupKey] = { ...meta, rows: [] };
+        groups[groupKey].rows.push({
+          ...result,
+          raceNumber,
+          bib: target.bib || target.teamId || '',
+          name: target.name || target.teamName || '',
+          affiliation: target.affiliation || ''
+        });
+      });
+    });
+    return Object.values(groups).map(group => ({
+      ...group,
+      rows: group.rows
+        .sort((a, b) => {
+          const rankA = Number(a.rank); const rankB = Number(b.rank);
+          if (Number.isFinite(rankA) && Number.isFinite(rankB)) return rankA - rankB;
+          if (Number.isFinite(rankA)) return -1;
+          if (Number.isFinite(rankB)) return 1;
+          return String(a.time || '').localeCompare(String(b.time || ''), 'ja');
+        })
+        .slice(0, limit || undefined)
+        .map((row, index) => ({ ...row, summaryRank: index + 1 }))
+    })).sort((a, b) => `${a.department}${a.gender}${a.event}`.localeCompare(`${b.department}${b.gender}${b.event}`, 'ja'));
+  };
+
+  const handlePrintResultSummary = (limit = null) => {
+    const groups = getResultSummaryGroups(limit);
+    if (!groups.length) {
+      alert('印刷できる競技結果がありません。');
+      return;
+    }
+    const title = limit ? '各競技 上位8位記録一覧' : '各競技 全記録一覧';
+    const sections = groups.map(group => `
+      <section class="event">
+        <h2>${escapeHtml(`${group.department} ${group.gender} ${group.event}`)}</h2>
+        <table><thead><tr><th>順位</th><th>組</th><th>ゼッケン</th><th>氏名／チーム名</th><th>所属</th><th>記録</th><th>風速</th><th>状態</th></tr></thead>
+        <tbody>${group.rows.map(row => `<tr><td>${escapeHtml(row.summaryRank || '-')}</td><td>第${escapeHtml(row.raceNumber)}組</td><td>${escapeHtml(row.bib)}</td><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.affiliation)}</td><td>${escapeHtml(row.time || '-')}</td><td>${escapeHtml(row.wind || '-')}</td><td>${escapeHtml(row.status || 'OK')}</td></tr>`).join('')}</tbody></table>
+      </section>`).join('');
+    const popup = window.open('', '_blank', 'width=1200,height=850');
+    if (!popup) {
+      alert('印刷用ウィンドウがブロックされました。ポップアップを許可してください。');
+      return;
+    }
+    popup.document.write(`<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
+      @page{size:A4 landscape;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,"Noto Sans JP",sans-serif;color:#111;font-size:10px;margin:0}h1{font-size:20px;margin:0 0 14px;border-bottom:2px solid #111;padding-bottom:8px}.event{break-inside:avoid;margin:0 0 18px}h2{font-size:14px;margin:0 0 5px;background:#e5e7eb;padding:6px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #777;padding:4px 5px;text-align:left}th{background:#f3f4f6;font-weight:700}td:first-child,td:nth-child(2),td:nth-child(3){text-align:center}footer{margin-top:12px;color:#555;font-size:9px}@media print{.no-print{display:none}}</style></head><body><h1>${escapeHtml(title)}</h1>${sections}<footer>出力日時：${escapeHtml(new Date().toLocaleString('ja-JP'))}</footer></body></html>`);
+    popup.document.close();
+    popup.focus();
+    popup.onload = () => { popup.print(); };
+  };
+
   const publicLiveUrl = `${window.location.origin}${window.location.pathname}?${publicCode}`;
   const handleCopyPublicUrl = async () => {
     try {
@@ -743,6 +1171,92 @@ export default function App() {
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const generateTimetable = () => {
+    const candidates = Object.entries(draws).map(([key, races]) => {
+      const parts = key.split('-');
+      const event = parts.pop() || '';
+      const gender = parts.pop() || '';
+      const department = parts.join('-');
+      const raceList = Array.isArray(races) ? races : [];
+      if (!raceList.length) return null;
+      const field = isFieldEvent(event);
+      const relay = isRelayEvent(event);
+      const round = raceList.length === 1
+        ? (isSingleRaceEvent(event) ? 'タイムレース' : '決勝')
+        : '予選';
+      return {
+        key, department, gender, event, field, relay,
+        title: `${department}${gender}${event}`,
+        venue: field ? 'フィールド' : 'トラック',
+        round, heats: raceList.length,
+        participants: raceList.reduce((sum, race) => sum + (race.lanes?.length || 0), 0),
+        durationMinutes: estimateTimetableDuration(event, raceList.length, raceList.reduce((sum, race) => sum + (race.lanes?.length || 0), 0), field)
+      };
+    }).filter(Boolean).sort((a, b) => Number(a.field) - Number(b.field) || a.event.localeCompare(b.event, 'ja'));
+    let trackClock = timeToMinutes(timetableConfig.trackStart) ?? 8 * 60 + 45;
+    let fieldClock = timeToMinutes(timetableConfig.fieldStart) ?? 9 * 60;
+    const rows = candidates.map((candidate, index) => {
+      const isField = candidate.field;
+      const start = isField ? fieldClock : trackClock;
+      const callStart = isField ? timetableConfig.fieldCallStart : timetableConfig.trackCallStart;
+      const callComplete = isField ? timetableConfig.fieldCallComplete : timetableConfig.trackCallComplete;
+      const interval = Math.max(isField ? Number(timetableConfig.fieldInterval) : Number(timetableConfig.trackInterval), Number(candidate.durationMinutes) || 0);
+      const row = {
+        ...candidate, order: index + 1, startTime: minutesToTime(start),
+        callStartTime: minutesToTime(start - callStart),
+        callCompleteTime: minutesToTime(start - callComplete),
+        callLocation: isField ? candidate.event : '各種目スタート付近'
+      };
+      if (isField) fieldClock += interval;
+      else trackClock += interval;
+      return row;
+    });
+    setTimetableRows(rows);
+    if (!rows.length) alert('組割り済みの競技がありません。先にエントリー登録と組割りを行ってください。');
+  };
+
+  const reorderTimetableRows = (fromIndex, toIndex) => {
+    if (fromIndex === null || fromIndex === undefined || toIndex === null || toIndex === undefined || fromIndex === toIndex) return;
+    setTimetableRows(prev => {
+      if (fromIndex < 0 || toIndex < 0 || fromIndex >= prev.length || toIndex >= prev.length) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return recalculateTimetableRows(next, timetableConfig);
+    });
+  };
+
+  const updateTimetableStartTime = (rowKey, value) => {
+    if (!/^\d{2}:\d{2}$/.test(value)) return;
+    setTimetableRows(prev => recalculateTimetableRows(
+      prev.map(row => row.key === rowKey ? { ...row, manuallyScheduled: true } : row),
+      timetableConfig,
+      rowKey,
+      timeToMinutes(value)
+    ));
+  };
+
+  const moveTimetableRow = (index, direction) => {
+    const targetIndex = index + direction;
+    reorderTimetableRows(index, targetIndex);
+  };
+
+  const handleTimetableDrop = (targetIndex) => {
+    reorderTimetableRows(draggingTimetableIndex, targetIndex);
+    setDraggingTimetableIndex(null);
+  };
+
+  const handleExportTimetableCsv = () => {
+    if (!timetableRows.length) return;
+    const headers = ['順序', '開始時間', '所要時間(分)', '招集開始時間', '招集完了時間', '競技名', '競技場所', 'ラウンド', '組数', '参加人数', '招集場所'];
+    const csvCell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const csvRows = timetableRows.map(row => [row.order, row.startTime, row.durationMinutes, row.callStartTime, row.callCompleteTime, row.title, row.venue, row.round, row.heats, row.participants, row.callLocation]);
+    const csv = [headers, ...csvRows].map(row => row.map(csvCell).join(',')).join('\n');
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a'); link.href = url; link.download = `track-and-field-timetable-${new Date().toISOString().slice(0, 10)}.csv`; link.click(); URL.revokeObjectURL(url);
   };
 
   const openCertificatePopup = (content, target) => {
@@ -792,11 +1306,14 @@ export default function App() {
     { id: 'draws', label: 'プログラム編成・組割り', icon: LayoutList, protected: true },
     { id: 'results', label: '競技結果入力', icon: FileEdit, protected: true },
     { id: 'live', label: '速報・リアルタイム表示', icon: Radio, protected: false },
+    { id: 'timetable', label: 'タイムテーブル', icon: CalendarDays, protected: true },
     { id: 'certificates', label: '記録証・賞状発行', icon: Printer, protected: true },
+    { id: 'userSettings', label: 'ログインユーザー管理', icon: UserCheck, protected: true },
   ];
 
   const currentTabObj = navTabs.find(t => t.id === activeTab);
   const currentKey = `${selectedDepartment}-${selectedGender}-${selectedEvent}`;
+  const allConditionMode = !selectedDepartment && !selectedGender && !selectedEvent;
   const overallFinalResults = (draws[currentKey] || []).flatMap(race => {
     const raceKey = `${currentKey}-${race.raceNumber}`;
     return (results[raceKey] || []).map(result => ({
@@ -831,7 +1348,7 @@ export default function App() {
           <div className="flex items-center gap-3">
             {user ? (
               <div className="flex items-center gap-3 bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700">
-                <img src={user.picture} alt={user.name} className="w-7 h-7 rounded-full border border-slate-600" />
+                <div aria-hidden="true" className="w-7 h-7 rounded-full border border-slate-600 bg-indigo-600 flex items-center justify-center text-xs font-black text-white">{(user.name || '役').slice(0, 1)}</div>
                 <div className="text-left hidden sm:block">
                   <div className="text-xs font-bold text-white leading-tight">{user.name}</div>
                   <div className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
@@ -846,14 +1363,8 @@ export default function App() {
                   <LogOut size={16} />
                 </button>
               </div>
-            ) : isAdminPage && !isPublicLivePage ? (
-              <form onSubmit={handleLogin} className="flex items-center gap-2">
-                <label className="sr-only" htmlFor="header-login-id">ログインID</label>
-                <input id="header-login-id" value={loginId} onChange={event => setLoginId(event.target.value)} placeholder="ログインID" autoComplete="username" className="w-32 px-3 py-2 rounded-lg bg-white text-sm text-slate-900 placeholder:text-slate-400 border border-slate-300 shadow-sm outline-none focus:ring-2 focus:ring-indigo-400" />
-                <label className="sr-only" htmlFor="header-login-password">パスワード</label>
-                <input id="header-login-password" value={loginPassword} onChange={event => setLoginPassword(event.target.value)} type="password" placeholder="パスワード" autoComplete="current-password" className="w-36 px-3 py-2 rounded-lg bg-white text-sm text-slate-900 placeholder:text-slate-400 border border-slate-300 shadow-sm outline-none focus:ring-2 focus:ring-indigo-400" />
-                <button type="submit" className="px-4 py-2 bg-indigo-500 text-white hover:bg-indigo-400 rounded-lg text-sm font-bold border border-indigo-300 shadow-sm">ログイン</button>
-              </form>
+            ) : authRestoring ? (
+              <span className="text-xs text-slate-300 font-semibold">ログイン状態を確認中...</span>
             ) : null}
           </div>
         </div>
@@ -868,7 +1379,23 @@ export default function App() {
           </div>
         )}
 
-        {canRenderApp && (
+        {sessionWarning && !authError && (
+          <div className="bg-amber-500 text-white text-xs py-2 px-6 flex items-center justify-between font-bold">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} />
+              <span>{sessionWarning}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => { setSessionWarning(''); setAuthCheckNonce(count => count + 1); }}
+              className="text-white underline decoration-white/60 hover:decoration-white"
+            >
+              再試行
+            </button>
+          </div>
+        )}
+
+        {canRenderApp && (!isAdminPage || user) && (
           <div className="max-w-7xl mx-auto px-6 flex gap-1 overflow-x-auto border-t border-slate-800">
             {navTabs.filter(tab => user || !tab.protected).map(tab => {
             const Icon = tab.icon;
@@ -904,7 +1431,33 @@ export default function App() {
         </main>
       ) : canRenderApp && (
         <main className="max-w-7xl mx-auto p-6">
-        {currentTabObj?.protected && !user ? (
+        {!user && authRestoring && (isAdminPage || currentTabObj?.protected) ? (
+          <div className="min-h-[60vh] flex items-center justify-center py-10">
+            <div className="text-center px-4">
+              <div className="mx-auto w-12 h-12 rounded-full border-4 border-indigo-200 border-t-indigo-600 animate-spin" aria-hidden="true" />
+              <p className="mt-4 text-sm font-bold text-slate-700">ログイン状態を確認しています...</p>
+              <p className="mt-1 text-xs text-slate-500">画面を更新してもログイン画面には戻りません。しばらくお待ちください。</p>
+            </div>
+          </div>
+        ) : isAdminPage && !user ? (
+          <div className="min-h-[68vh] flex items-center justify-center py-10">
+            <div className="w-full max-w-md bg-white border border-slate-200 rounded-3xl shadow-xl p-8 sm:p-10">
+              <div className="mx-auto w-16 h-16 rounded-2xl bg-indigo-100 flex items-center justify-center"><Lock className="text-indigo-600" size={32} /></div>
+              <h2 className="mt-5 text-center text-2xl font-black text-slate-900">管理者ログイン</h2>
+              <p className="mt-3 text-center text-sm leading-6 text-slate-600">大会運営機能を利用するには、登録済みの管理者アカウントでログインしてください。</p>
+              <div className="mt-5 rounded-xl bg-indigo-50 border border-indigo-100 p-4 text-xs leading-5 text-indigo-900">
+                <p className="font-bold">ログイン画面の使い方</p>
+                <ol className="list-decimal list-inside mt-1 space-y-0.5"><li>管理者から発行されたログインIDを入力</li><li>対応するパスワードを入力</li><li>「ログイン」ボタンを押す</li></ol>
+              </div>
+              <form onSubmit={handleLogin} className="mt-7 space-y-5">
+                <label className="block text-sm font-bold text-slate-700">ユーザー名（ログインID）<input id="admin-login-id" value={loginId} onChange={event => setLoginId(event.target.value)} placeholder="例：official" autoComplete="username" required className="mt-2 w-full px-4 py-3 rounded-xl bg-white border-2 border-slate-300 text-base text-slate-900 placeholder:text-slate-400 shadow-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100" /></label>
+                <label className="block text-sm font-bold text-slate-700">パスワード<input id="admin-login-password" value={loginPassword} onChange={event => setLoginPassword(event.target.value)} type="password" placeholder="パスワードを入力" autoComplete="current-password" required className="mt-2 w-full px-4 py-3 rounded-xl bg-white border-2 border-slate-300 text-base text-slate-900 placeholder:text-slate-400 shadow-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100" /></label>
+                <button type="submit" className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-base font-black shadow-md transition-colors">ログイン</button>
+              </form>
+              <p className="mt-5 text-center text-xs text-slate-500">パスワードが分からない場合は、大会システム管理者に確認してください。</p>
+            </div>
+          </div>
+        ) : currentTabObj?.protected && !user ? (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-8 text-center text-amber-900 shadow-sm my-8">
             <Lock className="mx-auto text-amber-600 mb-3" size={36} />
             <h3 className="text-base font-bold">役員権限が必要です</h3>
@@ -919,6 +1472,64 @@ export default function App() {
           </div>
         ) : (
           <>
+            {activeTab === 'timetable' && (
+              <div className="space-y-6">
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm print:hidden">
+                  <h2 className="text-lg font-black text-slate-800 flex items-center gap-2"><CalendarDays size={20} className="text-indigo-600" />競技日程表・タイムテーブル</h2>
+                  <p className="text-xs text-slate-500 mt-2">現在の組割りから、PDF見本に近い競技順・開始時間・招集時間・組数を自動作成します。</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
+                    <label className="text-xs font-bold text-slate-600">開催日<input type="text" placeholder="9月19日(土)" value={timetableConfig.date} onChange={event => setTimetableConfig({ ...timetableConfig, date: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
+                    <label className="text-xs font-bold text-slate-600">予備日<input type="text" placeholder="9月26日(土)" value={timetableConfig.reserveDate} onChange={event => setTimetableConfig({ ...timetableConfig, reserveDate: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
+                    <label className="text-xs font-bold text-slate-600">トラック開始<input type="time" value={timetableConfig.trackStart} onChange={event => setTimetableConfig({ ...timetableConfig, trackStart: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
+                    <label className="text-xs font-bold text-slate-600">フィールド開始<input type="time" value={timetableConfig.fieldStart} onChange={event => setTimetableConfig({ ...timetableConfig, fieldStart: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
+                    <label className="text-xs font-bold text-slate-600">トラック間隔(分)<input type="number" min="1" value={timetableConfig.trackInterval} onChange={event => setTimetableConfig({ ...timetableConfig, trackInterval: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
+                    <label className="text-xs font-bold text-slate-600">フィールド間隔(分)<input type="number" min="1" value={timetableConfig.fieldInterval} onChange={event => setTimetableConfig({ ...timetableConfig, fieldInterval: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
+                    <label className="text-xs font-bold text-slate-600">トラック招集完了(分前)<input type="number" min="0" value={timetableConfig.trackCallComplete} onChange={event => setTimetableConfig({ ...timetableConfig, trackCallComplete: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
+                    <label className="text-xs font-bold text-slate-600">フィールド招集完了(分前)<input type="number" min="0" value={timetableConfig.fieldCallComplete} onChange={event => setTimetableConfig({ ...timetableConfig, fieldCallComplete: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
+                  </div>
+                  <div className="flex flex-wrap gap-2 mt-5">
+                    <button type="button" onClick={generateTimetable} className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold"><Clock size={16} />組割りから自動生成</button>
+                    <button type="button" onClick={handlePrint} disabled={!timetableRows.length} className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 hover:bg-slate-800 disabled:opacity-40 text-white rounded-lg text-sm font-bold"><Printer size={16} />印刷</button>
+                    <button type="button" onClick={handleExportTimetableCsv} disabled={!timetableRows.length} className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-sm font-bold"><Download size={16} />CSV出力</button>
+                  </div>
+                </div>
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm" id="timetable-preview">
+                  <div className="text-center mb-5"><h1 className="text-xl font-black text-slate-900">競技日程表</h1><p className="text-sm font-bold text-slate-700">{timetableConfig.date || '開催日未設定'}<span className="ml-8 text-xs font-normal text-slate-500">予備日：{timetableConfig.reserveDate || '未設定'}</span></p></div>
+                  <div className="mb-5 text-sm text-slate-700"><h3 className="font-black border-b-2 border-slate-700 pb-1">◆ 招集時間について</h3><p className="mt-2">トラック競技は競技開始時間の{timetableConfig.trackCallComplete}分前が招集完了時間です。招集場所は各種目のスタート付近になります。</p><p>フィールド競技は競技開始時間の{timetableConfig.fieldCallComplete}分前が招集完了時間です。招集場所は各種目のピットになります。</p></div>
+                  {['トラック', 'フィールド'].map(section => {
+                    const sectionRows = timetableRows.filter(row => row.venue === section);
+                    if (!sectionRows.length) return null;
+                    return <section key={section} className="mb-7"><h2 className="text-base font-black border-b-2 border-slate-800 pb-1 mb-2">{section}競技</h2><p className="text-[11px] text-slate-500 mb-2 print:hidden">行をドラッグして移動するか、↑↓ボタンで競技順を変更できます。開始時刻を変更すると、全競技を所要時間に沿って自動調整します。</p><div className="overflow-x-auto"><table className="w-full text-xs border-collapse"><thead><tr className="bg-slate-100"><th className="border border-slate-300 p-1 print:hidden">移動</th><th className="border border-slate-300 p-1">順序</th><th className="border border-slate-300 p-1">開始時間</th><th className="border border-slate-300 p-1">所要時間</th><th className="border border-slate-300 p-1">招集開始</th><th className="border border-slate-300 p-1">招集完了</th><th className="border border-slate-300 p-1 text-left">競技名</th><th className="border border-slate-300 p-1">競技場所</th><th className="border border-slate-300 p-1">ラウンド</th><th className="border border-slate-300 p-1">組数</th><th className="border border-slate-300 p-1">参加人数</th></tr></thead><tbody>{sectionRows.map(row => { const index = timetableRows.findIndex(item => item.key === row.key); return <tr key={row.key} draggable onDragStart={() => setDraggingTimetableIndex(index)} onDragOver={event => event.preventDefault()} onDrop={() => handleTimetableDrop(index)} className={draggingTimetableIndex === index ? 'bg-indigo-50 opacity-60' : 'hover:bg-slate-50'}><td className="border border-slate-300 p-1 text-center print:hidden"><div className="flex items-center justify-center gap-1"><button type="button" title="1つ上へ移動" aria-label={`${row.title}を1つ上へ移動`} disabled={index === 0} onClick={() => moveTimetableRow(index, -1)} className="px-1.5 py-0.5 rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-30 font-bold">↑</button><button type="button" title="1つ下へ移動" aria-label={`${row.title}を1つ下へ移動`} disabled={index === timetableRows.length - 1} onClick={() => moveTimetableRow(index, 1)} className="px-1.5 py-0.5 rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-30 font-bold">↓</button></div></td><td className="border border-slate-300 p-1 text-center">{row.order}</td><td className="border border-slate-300 p-1 text-center font-bold"><input type="time" value={row.startTime} onChange={event => updateTimetableStartTime(row.key, event.target.value)} onInput={event => updateTimetableStartTime(row.key, event.currentTarget.value)} onBlur={event => updateTimetableStartTime(row.key, event.currentTarget.value)} step="60" className="w-24 p-1 border border-slate-300 rounded font-bold print:border-0 print:p-0" aria-label={`${row.title}の開始時刻`} /></td><td className="border border-slate-300 p-1 text-center">{row.durationMinutes}分</td><td className="border border-slate-300 p-1 text-center">{row.callStartTime}</td><td className="border border-slate-300 p-1 text-center">{row.callCompleteTime}</td><td className="border border-slate-300 p-1">{row.title}</td><td className="border border-slate-300 p-1 text-center">{row.venue}</td><td className="border border-slate-300 p-1 text-center">{row.round}</td><td className="border border-slate-300 p-1 text-center">{row.heats}</td><td className="border border-slate-300 p-1 text-center">{row.participants}</td></tr>; })}</tbody></table></div></section>;
+                  })}
+                  {!timetableRows.length && <div className="py-16 text-center text-slate-400 text-sm">「組割りから自動生成」を押すとタイムテーブルが表示されます。</div>}
+                </div>
+              </div>
+            )}
+            {activeTab === 'userSettings' && (
+              <div className="max-w-2xl mx-auto space-y-6">
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                  <h2 className="text-lg font-black text-slate-800 flex items-center gap-2"><UserCheck size={20} className="text-indigo-600" />ログインユーザー管理</h2>
+                  <p className="text-xs text-slate-500 mt-2">パスワードは表示されません。変更する場合だけ新しいパスワードを入力してください。</p>
+                  <form onSubmit={handleUpdateUser} className="mt-6 space-y-4">
+                    <label className="block text-sm font-bold text-slate-700">ログインID<input value={userEdit.username} onChange={event => setUserEdit({ ...userEdit, username: event.target.value })} autoComplete="username" required className="mt-1 w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-400" /></label>
+                    <label className="block text-sm font-bold text-slate-700">表示名<input value={userEdit.displayName} onChange={event => setUserEdit({ ...userEdit, displayName: event.target.value })} required className="mt-1 w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-400" /></label>
+                    <label className="block text-sm font-bold text-slate-700">新しいパスワード<span className="ml-2 text-xs font-normal text-slate-400">変更しない場合は空欄</span><input value={userEdit.password} onChange={event => setUserEdit({ ...userEdit, password: event.target.value })} type="password" autoComplete="new-password" minLength={12} placeholder="12文字以上推奨" className="mt-1 w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-400" /></label>
+                    <div className="flex items-center justify-between gap-3 pt-2"><span className="text-sm font-bold text-emerald-600">{userEditMessage}</span><button type="submit" className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold">ユーザー情報を保存</button></div>
+                  </form>
+                </div>
+                <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+                  {adminUsersMessage && <p className="mt-3 text-sm font-bold text-indigo-600">{adminUsersMessage}</p>}
+                  <div className="mt-5 divide-y divide-slate-100 border-t border-slate-100">
+                    {adminUsers.map(account => (
+                      <div key={account.id} className="py-3 flex items-center justify-between gap-3 text-sm">
+                        <div><span className="font-bold text-slate-800">{account.displayName}</span><span className="ml-2 text-slate-500">({account.username})</span></div>
+                        {String(account.id) !== String(user?.id) && <button type="button" onClick={() => handleDeleteAdminUser(account.id)} className="px-3 py-1.5 text-xs font-bold text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-50">削除</button>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
             {/* 1. エントリー管理 */}
             {activeTab === 'entries' && (
               <div className="space-y-6">
@@ -942,6 +1553,14 @@ export default function App() {
                     }`}
                   >
                     <Flag size={16} /> リレーチームエントリー管理 ({relayTeams.length}件)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportSelectedEntriesCsv}
+                    disabled={!selectedIndividualIds.length && !selectedRelayIds.length}
+                    className="ml-auto self-start flex items-center gap-1.5 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg text-xs font-bold"
+                  >
+                    <Download size={14} /> 選択エントリーをCSV出力 ({selectedIndividualIds.length + selectedRelayIds.length})
                   </button>
                 </div>
 
@@ -994,14 +1613,22 @@ export default function App() {
                         />
                         <select
                           value={newIndividual.department}
-                          onChange={e => setNewIndividual({ ...newIndividual, department: e.target.value })}
+                          onChange={e => {
+                            const department = e.target.value;
+                            const events = getAvailableIndividualEvents(department, newIndividual.gender);
+                            setNewIndividual({ ...newIndividual, department, event: events.includes(newIndividual.event) ? newIndividual.event : events[0] });
+                          }}
                           className="p-2 border border-slate-300 rounded-lg text-xs"
                         >
                           {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                         </select>
                         <select
                           value={newIndividual.gender}
-                          onChange={e => setNewIndividual({ ...newIndividual, gender: e.target.value })}
+                          onChange={e => {
+                            const gender = e.target.value;
+                            const events = getAvailableIndividualEvents(newIndividual.department, gender);
+                            setNewIndividual({ ...newIndividual, gender, event: events.includes(newIndividual.event) ? newIndividual.event : events[0] });
+                          }}
                           className="p-2 border border-slate-300 rounded-lg text-xs"
                         >
                           {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
@@ -1011,7 +1638,7 @@ export default function App() {
                           onChange={e => setNewIndividual({ ...newIndividual, event: e.target.value })}
                           className="p-2 border border-slate-300 rounded-lg text-xs font-bold text-indigo-600"
                         >
-                          {INDIVIDUAL_EVENTS.map(ev => <option key={ev} value={ev}>{ev}</option>)}
+                          {getAvailableIndividualEvents(newIndividual.department, newIndividual.gender).map(ev => <option key={ev} value={ev}>{ev}</option>)}
                         </select>
                         <input
                           type="text"
@@ -1054,11 +1681,12 @@ export default function App() {
                             className="p-2 border border-slate-200 rounded-lg text-xs w-64"
                           />
                         </div>
-                        <span className="text-xs text-slate-500 font-semibold">全 {individualEntries.length} 名</span>
+                        <div className="flex items-center gap-3"><span className="text-xs text-slate-500 font-semibold">全 {individualEntries.length} 名</span><button type="button" onClick={handleBulkDeleteIndividuals} disabled={!selectedIndividualIds.length} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg text-xs font-bold">選択した個人を一括削除 ({selectedIndividualIds.length})</button></div>
                       </div>
                       <table className="w-full text-left text-xs border-collapse">
                         <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
                           <tr>
+                            <th className="p-3 font-bold w-10 text-center"><input type="checkbox" aria-label="個人エントリーを全選択" checked={individualEntries.length > 0 && selectedIndividualIds.length === individualEntries.length} onChange={event => setSelectedIndividualIds(event.target.checked ? individualEntries.map(entry => entry.id) : [])} /></th>
                             <th className="p-3 font-bold w-16 text-center">ゼッケン</th>
                             <th className="p-3 font-bold">氏名</th>
                             <th className="p-3 font-bold">所属団体</th>
@@ -1074,6 +1702,7 @@ export default function App() {
                             .filter(e => e.name.includes(searchTerm) || e.affiliation.includes(searchTerm) || e.bib.includes(searchTerm))
                             .map(entry => (
                               <tr key={entry.id} className="hover:bg-slate-50/80">
+                                <td className="p-3 text-center"><input type="checkbox" aria-label={`${entry.name}を選択`} checked={selectedIndividualIds.includes(entry.id)} onChange={event => setSelectedIndividualIds(prev => event.target.checked ? [...prev, entry.id] : prev.filter(id => id !== entry.id))} /></td>
                                 <td className="p-3 text-center font-mono font-bold text-indigo-600">{entry.bib || '-'}</td>
                                 <td className="p-3 font-bold text-slate-800">{entry.name}</td>
                                 <td className="p-3 text-slate-600">{entry.affiliation}</td>
@@ -1205,11 +1834,12 @@ export default function App() {
                             className="p-2 border border-slate-200 rounded-lg text-xs w-64"
                           />
                         </div>
-                        <span className="text-xs text-slate-500 font-semibold">全 {relayTeams.length} チーム</span>
+                        <div className="flex items-center gap-3"><span className="text-xs text-slate-500 font-semibold">全 {relayTeams.length} チーム</span><button type="button" onClick={handleBulkDeleteRelays} disabled={!selectedRelayIds.length} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg text-xs font-bold">選択したリレーを一括削除 ({selectedRelayIds.length})</button></div>
                       </div>
                       <table className="w-full text-left text-xs border-collapse">
                         <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
                           <tr>
+                            <th className="p-3 font-bold w-10 text-center"><input type="checkbox" aria-label="リレーを全選択" checked={relayTeams.length > 0 && selectedRelayIds.length === relayTeams.length} onChange={event => setSelectedRelayIds(event.target.checked ? relayTeams.map(team => team.id) : [])} /></th>
                             <th className="p-3 font-bold w-16 text-center">ID</th>
                             <th className="p-3 font-bold">チーム名</th>
                             <th className="p-3 font-bold">所属団体</th>
@@ -1227,6 +1857,7 @@ export default function App() {
                               const hasOrder = team.order?.r1 || team.order?.r2 || team.order?.r3 || team.order?.r4;
                               return (
                                 <tr key={team.id} className="hover:bg-slate-50/80">
+                                  <td className="p-3 text-center"><input type="checkbox" aria-label={`${team.teamName}を選択`} checked={selectedRelayIds.includes(team.id)} onChange={event => setSelectedRelayIds(prev => event.target.checked ? [...prev, team.id] : prev.filter(id => id !== team.id))} /></td>
                                   <td className="p-3 text-center font-mono font-bold text-indigo-600">{team.teamId || '-'}</td>
                                   <td className="p-3 font-bold text-slate-800">{team.teamName}</td>
                                   <td className="p-3 text-slate-600">{team.affiliation}</td>
@@ -1372,6 +2003,7 @@ export default function App() {
                       onChange={e => setSelectedDepartment(e.target.value)}
                       className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
                     >
+                      <option value="">全ての部門</option>
                       {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                     <select
@@ -1379,6 +2011,7 @@ export default function App() {
                       onChange={e => setSelectedGender(e.target.value)}
                       className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
                     >
+                      <option value="">全ての性別</option>
                       {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
                     </select>
                     <select
@@ -1386,6 +2019,7 @@ export default function App() {
                       onChange={e => setSelectedEvent(e.target.value)}
                       className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
                     >
+                      <option value="">全ての種目</option>
                       {ALL_EVENTS.map(ev => <option key={ev} value={ev}>{ev}</option>)}
                     </select>
 
@@ -1409,11 +2043,18 @@ export default function App() {
                     onClick={generateDraws}
                     className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs transition-colors shadow-sm w-full md:w-auto justify-center"
                   >
-                    <Shuffle size={14} /> 組割り編成を実行
+                    <Shuffle size={14} /> {allConditionMode ? '全種目の組割りを一括生成' : '組割り編成を実行'}
                   </button>
                 </div>
 
-                {draws[currentKey] ? (
+                {allConditionMode ? (
+                  Object.keys(draws).length ? (
+                    <div className="space-y-4">{Object.entries(draws).map(([key, races]) => {
+                      const meta = parseDrawKey(key);
+                      return <div key={key} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"><div className="bg-slate-800 text-white px-4 py-3 text-sm font-black">{meta.department} {meta.gender} {meta.event}（{races.length}組）</div><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">組</th><th className="p-3">レーン/試技順</th><th className="p-3">ID/ゼッケン</th><th className="p-3">氏名/チーム名</th><th className="p-3">所属</th><th className="p-3">申込タイム/PB</th></tr></thead><tbody className="divide-y divide-slate-100">{races.flatMap(race => race.lanes.map(item => <tr key={`${race.raceNumber}-${item.lane}`}><td className="p-3">第{race.raceNumber}組</td><td className="p-3 text-center font-bold text-indigo-600">{item.lane}</td><td className="p-3">{item.athlete.bib || '-'}</td><td className="p-3 font-bold">{item.athlete.name}</td><td className="p-3 text-slate-600">{item.athlete.affiliation}</td><td className="p-3">{item.athlete.pb || '-'}</td></tr>))}</tbody></table></div>;
+                    })}</div>
+                  ) : <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 text-slate-400 text-xs">表示できる組割りデータがありません。</div>
+                ) : draws[currentKey] ? (
                   <div className="grid grid-cols-1 gap-6">
                     {draws[currentKey].map(race => (
                       <div key={race.raceNumber} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -1500,6 +2141,7 @@ export default function App() {
                     onChange={e => setSelectedDepartment(e.target.value)}
                     className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
                   >
+                    <option value="">全ての部門</option>
                     {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
                   <select
@@ -1507,6 +2149,7 @@ export default function App() {
                     onChange={e => setSelectedGender(e.target.value)}
                     className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
                   >
+                    <option value="">全ての性別</option>
                     {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
                   </select>
                   <select
@@ -1514,6 +2157,7 @@ export default function App() {
                     onChange={e => setSelectedEvent(e.target.value)}
                     className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
                   >
+                    <option value="">全ての種目</option>
                     {ALL_EVENTS.map(ev => <option key={ev} value={ev}>{ev}</option>)}
                   </select>
                   <span className="text-xs text-indigo-600 font-bold bg-indigo-50 px-2.5 py-1 rounded border border-indigo-100 ml-auto">
@@ -1525,9 +2169,9 @@ export default function App() {
                     type="button"
                     onClick={handleRandomizeResults}
                     className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-colors shadow-sm"
-                    title="選択中の全組にランダムなテスト結果を入力"
+                    title={allConditionMode ? '全競技にランダムなテスト結果を入力' : '選択中の全組にランダムなテスト結果を入力'}
                   >
-                    <Shuffle size={14} /> テスト結果をランダム入力
+                    <Shuffle size={14} /> {allConditionMode ? '全競技にランダム入力' : 'テスト結果をランダム入力'}
                   </button>
                   {!isPublicLivePage && (
                     <button
@@ -1540,7 +2184,40 @@ export default function App() {
                   )}
                 </div>
 
-                {draws[currentKey] ? (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="px-5 py-4 border-b border-slate-200 flex flex-wrap items-center gap-2">
+                    <div className="mr-auto">
+                      <h2 className="font-black text-slate-800">競技結果一覧</h2>
+                      <p className="text-[11px] text-slate-500 mt-1">各競技の記録を順位順に集計して表示します。</p>
+                    </div>
+                    <button type="button" onClick={() => setResultSummaryMode('top8')} className={`px-3 py-2 rounded-lg text-xs font-bold ${resultSummaryMode === 'top8' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>上位8位まで</button>
+                    <button type="button" onClick={() => setResultSummaryMode('all')} className={`px-3 py-2 rounded-lg text-xs font-bold ${resultSummaryMode === 'all' ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}`}>全ての記録</button>
+                    {!isPublicLivePage && (
+                      <button type="button" onClick={() => handlePrintResultSummary(resultSummaryMode === 'top8' ? 8 : null)} className="flex items-center gap-2 px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold">
+                        <Printer size={14} /> {resultSummaryMode === 'top8' ? '上位8位をPDF出力' : '全記録をPDF出力'}
+                      </button>
+                    )}
+                  </div>
+                  {getResultSummaryGroups(resultSummaryMode === 'top8' ? 8 : null).length ? (
+                    <div className="p-4 space-y-4">
+                      {getResultSummaryGroups(resultSummaryMode === 'top8' ? 8 : null).map(group => (
+                        <div key={`${group.department}-${group.gender}-${group.event}`} className="border border-slate-200 rounded-xl overflow-hidden">
+                          <div className="bg-slate-900 text-white px-4 py-2.5 text-sm font-black">{group.department} {group.gender} {group.event}</div>
+                          <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-2.5">順位</th><th className="p-2.5">組</th><th className="p-2.5">ゼッケン</th><th className="p-2.5">氏名／チーム名</th><th className="p-2.5">所属</th><th className="p-2.5">記録</th><th className="p-2.5">風速</th><th className="p-2.5">状態</th></tr></thead><tbody className="divide-y divide-slate-100">{group.rows.map((row, index) => <tr key={`${row.athleteId}-${row.raceNumber}-${index}`}><td className="p-2.5 font-black text-indigo-700">{row.summaryRank}</td><td className="p-2.5">第{row.raceNumber}組</td><td className="p-2.5 font-mono">{row.bib || '-'}</td><td className="p-2.5 font-bold">{row.name}</td><td className="p-2.5 text-slate-600">{row.affiliation}</td><td className="p-2.5 font-mono font-bold">{row.time || '-'}</td><td className="p-2.5">{row.wind || '-'}</td><td className="p-2.5">{row.status || 'OK'}</td></tr>)}</tbody></table></div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <div className="p-10 text-center text-slate-400 text-xs">表示できる競技結果がありません。</div>}
+                </div>
+
+                {allConditionMode ? (
+                  Object.keys(draws).length ? (
+                    <div className="space-y-4">{Object.entries(draws).map(([key, races]) => {
+                      const meta = parseDrawKey(key);
+                      return <div key={key} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"><div className="bg-slate-900 text-white px-4 py-3 text-sm font-black">{meta.department} {meta.gender} {meta.event}（{races.length}組）</div><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">組</th><th className="p-3">レーン/試技順</th><th className="p-3">氏名/チーム名</th><th className="p-3">所属</th><th className="p-3">順位</th><th className="p-3">記録</th><th className="p-3">状態</th></tr></thead><tbody className="divide-y divide-slate-100">{races.flatMap(race => { const raceResults = results[`${key}-${race.raceNumber}`] || []; return race.lanes.map(item => { const result = raceResults.find(entry => entry.athleteId === item.athlete.id) || {}; return <tr key={`${race.raceNumber}-${item.lane}`}><td className="p-3">第{race.raceNumber}組</td><td className="p-3 text-center font-bold text-indigo-600">{item.lane}</td><td className="p-3 font-bold">{item.athlete.name}</td><td className="p-3 text-slate-600">{item.athlete.affiliation}</td><td className="p-3">{result.rank || '-'}</td><td className="p-3 font-mono">{result.time || '未入力'}</td><td className="p-3">{result.status || '未入力'}</td></tr>; }); })}</tbody></table></div>;
+                    })}</div>
+                  ) : <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 text-slate-400 text-xs">表示できる組割りデータがありません。</div>
+                ) : draws[currentKey] ? (
                   draws[currentKey].map(race => {
                     const raceKey = `${currentKey}-${race.raceNumber}`;
                     const isField = isFieldEvent(selectedEvent);

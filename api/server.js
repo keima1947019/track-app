@@ -33,12 +33,33 @@ const isAdmin = (req) => {
   if (!token) return false;
   try {
     const payload = jwt.verify(token, authSecret);
-    return payload?.sub === adminUsername && payload?.role === 'admin';
+    if (payload?.role !== 'admin' || !payload?.sub) return false;
+    req.auth = payload;
+    return true;
   } catch {
     return false;
   }
 };
 const emptyState = () => ({ individualEntries: [], relayTeams: [], draws: {}, results: {} });
+
+async function ensureAdminUsersTable() {
+  await pool.query(`CREATE TABLE IF NOT EXISTS admin_users (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(100) NOT NULL UNIQUE,
+    display_name VARCHAR(100) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  ) ENGINE=InnoDB`);
+  const [rows] = await pool.query('SELECT id FROM admin_users LIMIT 1');
+  if (!rows.length && adminUsername && adminPasswordHash) {
+    await pool.query(
+      'INSERT INTO admin_users (username, display_name, password_hash) VALUES (?, ?, ?)',
+      [adminUsername, adminUsername, adminPasswordHash]
+    );
+    console.log(`Initial admin user created: ${adminUsername}`);
+  }
+}
 
 async function readState() {
   const [rows] = await pool.query('SELECT individual_entries, relay_teams, draws, results FROM meet_state WHERE id = 1');
@@ -68,11 +89,35 @@ app.get('/api/health', async (_req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const username = String(req.body?.username || '').trim();
   const password = String(req.body?.password || '');
-  if (!authSecret || !adminUsername || !adminPasswordHash) return res.status(503).json({ error: 'auth_not_configured' });
-  const valid = username === adminUsername && await bcrypt.compare(password, adminPasswordHash);
+  if (!authSecret) return res.status(503).json({ error: 'auth_not_configured' });
+  const [rows] = await pool.query('SELECT id, username, display_name, password_hash FROM admin_users WHERE username = ? LIMIT 1', [username]);
+  const account = rows[0];
+  const valid = Boolean(account && await bcrypt.compare(password, account.password_hash));
   if (!valid) return res.status(401).json({ error: 'invalid_credentials' });
-  const token = jwt.sign({ sub: adminUsername, role: 'admin' }, authSecret, { expiresIn: '12h' });
-  return res.json({ token, user: { name: adminUsername, email: adminUsername, picture: '' } });
+  const token = jwt.sign({ sub: String(account.id), role: 'admin' }, authSecret, { expiresIn: '12h' });
+  return res.json({ token, user: { name: account.display_name, email: account.username, picture: '' } });
+});
+
+app.put('/api/auth/me', async (req, res) => {
+  if (!isAdmin(req)) return res.status(401).json({ error: 'admin_required' });
+  const id = Number(req.auth.sub);
+  const username = String(req.body?.username || '').trim();
+  const displayName = String(req.body?.displayName || '').trim();
+  const newPassword = String(req.body?.password || '');
+  if (!Number.isInteger(id) || !username || !displayName) return res.status(400).json({ error: 'username_and_display_name_required' });
+  try {
+    const passwordHash = newPassword ? await bcrypt.hash(newPassword, 12) : null;
+    if (passwordHash) {
+      await pool.query('UPDATE admin_users SET username = ?, display_name = ?, password_hash = ? WHERE id = ?', [username, displayName, passwordHash, id]);
+    } else {
+      await pool.query('UPDATE admin_users SET username = ?, display_name = ? WHERE id = ?', [username, displayName, id]);
+    }
+    return res.json({ ok: true, user: { name: displayName, email: username, picture: '' } });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY') return res.status(409).json({ error: 'username_already_exists' });
+    console.error(error);
+    return res.status(503).json({ error: 'user_update_failed' });
+  }
 });
 
 // 速報ページは結果を含む大会状態を読み取り専用で取得します。
@@ -112,6 +157,7 @@ app.put('/api/state', async (req, res) => {
 const start = async () => {
   try {
     await pool.query('SELECT 1');
+    await ensureAdminUsersTable();
     console.log('MariaDB connection: OK');
     app.listen(port, '0.0.0.0', () => console.log(`track-app-api listening on ${port}`));
   } catch (error) {
