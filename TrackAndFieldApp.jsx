@@ -2475,7 +2475,7 @@ export default function App() {
                       <div key={race.raceNumber} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                         <div className="bg-slate-800 text-white px-4 py-3 text-xs font-bold flex justify-between items-center">
                           <span className="text-sm font-black tracking-wide">
-                            {selectedDepartment} {selectedGender} {selectedEvent} - 第 {race.raceNumber} 組み
+                            {selectedDepartment} {selectedGender} {selectedEvent} - 第 {race.raceNumber} 組
                           </span>
                           {isSingleRaceEvent(selectedEvent) ? (
                             <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2.5 py-1 rounded-md text-[11px] font-bold">
@@ -2681,7 +2681,7 @@ export default function App() {
                         <div className="bg-slate-900 text-white px-4 py-3 text-xs font-bold flex flex-wrap justify-between items-start sm:items-center gap-2">
                           <span className="flex items-center gap-2">
                             <CheckCircle size={14} className="text-emerald-400" />
-                            {selectedDepartment} {selectedGender} {selectedEvent} - 第 {race.raceNumber} 組み (結果入力)
+                            {selectedDepartment} {selectedGender} {selectedEvent} - 第 {race.raceNumber} 組 (結果入力)
                           </span>
                           {!isField && (
                             <span className="text-[11px] text-amber-300 font-normal">
@@ -2964,7 +2964,7 @@ export default function App() {
                     return (
                       <div key={raceKey} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                         <div className="bg-slate-800 text-white px-4 py-2.5 text-xs font-bold flex justify-between">
-                          <span>{dept} {gender} {ev} - 第 {raceNum} 組み 公式結果</span>
+                          <span>{dept} {gender} {ev} - 第 {raceNum} 組 公式結果</span>
                           <span className="text-[10px] text-slate-300 font-normal">
                             {isField ? 'フィールド種目 (5回試技)' : 'トラック種目'}
                           </span>
