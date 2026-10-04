@@ -1697,7 +1697,7 @@ export default function App() {
       </header>
 
       {isForbiddenPage ? (
-        <main className="max-w-7xl mx-auto p-6">
+        <main className="max-w-7xl mx-auto px-3 py-4 sm:p-6">
           <div className="min-h-[55vh] flex items-center justify-center">
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-10 text-center max-w-lg">
               <div className="text-6xl font-black text-slate-300 mb-4">403</div>
@@ -1707,7 +1707,7 @@ export default function App() {
           </div>
         </main>
       ) : canRenderApp && (
-        <main className="max-w-7xl mx-auto p-6">
+        <main className="max-w-7xl mx-auto px-3 py-4 sm:p-6">
         {!user && authRestoring && (isAdminPage || currentTabObj?.protected) ? (
           <div className="min-h-[60vh] flex items-center justify-center py-10">
             <div className="text-center px-4">
@@ -1755,21 +1755,21 @@ export default function App() {
                   <h2 className="text-lg font-black text-slate-800 flex items-center gap-2"><CalendarDays size={20} className="text-indigo-600" />競技日程表・タイムテーブル</h2>
                   <p className="text-xs text-slate-500 mt-2">現在の組割りから、PDF見本に近い競技順・開始時間・招集時間・組数を自動作成します。</p>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-5">
-                    <label className="text-xs font-bold text-slate-600">開催日<input type="text" placeholder="9月19日(土)" value={timetableConfig.date} onChange={event => setTimetableConfig({ ...timetableConfig, date: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
-                    <label className="text-xs font-bold text-slate-600">予備日<input type="text" placeholder="9月26日(土)" value={timetableConfig.reserveDate} onChange={event => setTimetableConfig({ ...timetableConfig, reserveDate: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
-                    <label className="text-xs font-bold text-slate-600">トラック開始<input type="time" value={timetableConfig.trackStart} onChange={event => setTimetableConfig({ ...timetableConfig, trackStart: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
-                    <label className="text-xs font-bold text-slate-600">フィールド開始<input type="time" value={timetableConfig.fieldStart} onChange={event => setTimetableConfig({ ...timetableConfig, fieldStart: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
-                    <label className="text-xs font-bold text-slate-600">トラック間隔(分)<input type="number" min="1" value={timetableConfig.trackInterval} onChange={event => setTimetableConfig({ ...timetableConfig, trackInterval: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
-                    <label className="text-xs font-bold text-slate-600">フィールド間隔(分)<input type="number" min="1" value={timetableConfig.fieldInterval} onChange={event => setTimetableConfig({ ...timetableConfig, fieldInterval: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
-                    <label className="text-xs font-bold text-slate-600">トラック招集完了(分前)<input type="number" min="0" value={timetableConfig.trackCallComplete} onChange={event => setTimetableConfig({ ...timetableConfig, trackCallComplete: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
-                    <label className="text-xs font-bold text-slate-600">フィールド招集完了(分前)<input type="number" min="0" value={timetableConfig.fieldCallComplete} onChange={event => setTimetableConfig({ ...timetableConfig, fieldCallComplete: event.target.value })} className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-sm" /></label>
+                    <label className="text-xs font-bold text-slate-600">開催日<input type="text" placeholder="9月19日(土)" value={timetableConfig.date} onChange={event => setTimetableConfig({ ...timetableConfig, date: event.target.value })} className="mt-1 w-full min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-sm" /></label>
+                    <label className="text-xs font-bold text-slate-600">予備日<input type="text" placeholder="9月26日(土)" value={timetableConfig.reserveDate} onChange={event => setTimetableConfig({ ...timetableConfig, reserveDate: event.target.value })} className="mt-1 w-full min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-sm" /></label>
+                    <label className="text-xs font-bold text-slate-600">トラック開始<input type="time" value={timetableConfig.trackStart} onChange={event => setTimetableConfig({ ...timetableConfig, trackStart: event.target.value })} className="mt-1 w-full min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-sm" /></label>
+                    <label className="text-xs font-bold text-slate-600">フィールド開始<input type="time" value={timetableConfig.fieldStart} onChange={event => setTimetableConfig({ ...timetableConfig, fieldStart: event.target.value })} className="mt-1 w-full min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-sm" /></label>
+                    <label className="text-xs font-bold text-slate-600">トラック間隔(分)<input type="number" min="1" value={timetableConfig.trackInterval} onChange={event => setTimetableConfig({ ...timetableConfig, trackInterval: event.target.value })} className="mt-1 w-full min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-sm" /></label>
+                    <label className="text-xs font-bold text-slate-600">フィールド間隔(分)<input type="number" min="1" value={timetableConfig.fieldInterval} onChange={event => setTimetableConfig({ ...timetableConfig, fieldInterval: event.target.value })} className="mt-1 w-full min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-sm" /></label>
+                    <label className="text-xs font-bold text-slate-600">トラック招集完了(分前)<input type="number" min="0" value={timetableConfig.trackCallComplete} onChange={event => setTimetableConfig({ ...timetableConfig, trackCallComplete: event.target.value })} className="mt-1 w-full min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-sm" /></label>
+                    <label className="text-xs font-bold text-slate-600">フィールド招集完了(分前)<input type="number" min="0" value={timetableConfig.fieldCallComplete} onChange={event => setTimetableConfig({ ...timetableConfig, fieldCallComplete: event.target.value })} className="mt-1 w-full min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-sm" /></label>
                   </div>
                   <div className="flex flex-wrap gap-2 mt-5">
-                    <button type="button" onClick={generateTimetable} className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold"><Clock size={16} />組割りから自動生成</button>
-                    <label className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold cursor-pointer"><Upload size={16} />CSV取込<input type="file" accept=".csv,text/csv" aria-label="タイムテーブルCSVを取り込む" onChange={handleImportTimetableCsv} className="hidden" /></label>
-                    <button type="button" onClick={handleDownloadTimetableCsvTemplate} className="flex items-center gap-2 px-4 py-2.5 bg-slate-500 hover:bg-slate-600 text-white rounded-lg text-sm font-bold"><Download size={16} />CSVテンプレート</button>
-                    <button type="button" onClick={handlePrintTimetable} disabled={!timetableRows.length} className="flex items-center gap-2 px-4 py-2.5 bg-slate-700 hover:bg-slate-800 disabled:opacity-40 text-white rounded-lg text-sm font-bold"><Printer size={16} />PDF出力</button>
-                    <button type="button" onClick={handleExportTimetableCsv} disabled={!timetableRows.length} className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-sm font-bold"><Download size={16} />CSV出力</button>
+                    <button type="button" onClick={generateTimetable} className="min-h-11 flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold"><Clock size={16} />組割りから自動生成</button>
+                    <label className="min-h-11 flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-bold cursor-pointer"><Upload size={16} />CSV取込<input type="file" accept=".csv,text/csv" aria-label="タイムテーブルCSVを取り込む" onChange={handleImportTimetableCsv} className="hidden" /></label>
+                    <button type="button" onClick={handleDownloadTimetableCsvTemplate} className="min-h-11 flex items-center gap-2 px-4 py-2.5 bg-slate-500 hover:bg-slate-600 text-white rounded-lg text-sm font-bold"><Download size={16} />CSVテンプレート</button>
+                    <button type="button" onClick={handlePrintTimetable} disabled={!timetableRows.length} className="min-h-11 flex items-center gap-2 px-4 py-2.5 bg-slate-700 hover:bg-slate-800 disabled:opacity-40 text-white rounded-lg text-sm font-bold"><Printer size={16} />PDF出力</button>
+                    <button type="button" onClick={handleExportTimetableCsv} disabled={!timetableRows.length} className="min-h-11 flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-sm font-bold"><Download size={16} />CSV出力</button>
                   </div>
                   <p className="mt-2 text-[11px] text-slate-500">CSV取込は現在のタイムテーブルを置き換えます。出力したCSV、またはテンプレートを編集して取り込んでください。</p>
                   <p className="mt-1 text-[11px] text-slate-500">PDF出力後に表示される印刷画面で「PDFに保存」を選択してください。</p>
@@ -1780,7 +1780,7 @@ export default function App() {
                   {['トラック', 'フィールド'].map(section => {
                     const sectionRows = timetableRows.filter(row => row.venue === section);
                     if (!sectionRows.length) return null;
-                    return <section key={section} className="mb-7"><h2 className="text-base font-black border-b-2 border-slate-800 pb-1 mb-2">{section}競技</h2><p className="text-[11px] text-slate-500 mb-2 print:hidden">行をドラッグして移動するか、↑↓ボタンで競技順を変更できます。開始時刻を変更すると、全競技を所要時間に沿って自動調整します。</p><div className="overflow-x-auto"><table className="w-full text-xs border-collapse"><thead><tr className="bg-slate-100"><th className="border border-slate-300 p-1 print:hidden">移動</th><th className="border border-slate-300 p-1">順序</th><th className="border border-slate-300 p-1">開始時間</th><th className="border border-slate-300 p-1">所要時間</th><th className="border border-slate-300 p-1">招集開始</th><th className="border border-slate-300 p-1">招集完了</th><th className="border border-slate-300 p-1 text-left">競技名</th><th className="border border-slate-300 p-1">競技場所</th><th className="border border-slate-300 p-1">ラウンド</th><th className="border border-slate-300 p-1">組数</th><th className="border border-slate-300 p-1">参加人数</th></tr></thead><tbody>{sectionRows.map(row => { const index = timetableRows.findIndex(item => item.key === row.key); return <tr key={row.key} draggable onDragStart={() => setDraggingTimetableIndex(index)} onDragOver={event => event.preventDefault()} onDrop={() => handleTimetableDrop(index)} className={draggingTimetableIndex === index ? 'bg-indigo-50 opacity-60' : 'hover:bg-slate-50'}><td className="border border-slate-300 p-1 text-center print:hidden"><div className="flex items-center justify-center gap-1"><button type="button" title="1つ上へ移動" aria-label={`${row.title}を1つ上へ移動`} disabled={index === 0} onClick={() => moveTimetableRow(index, -1)} className="px-1.5 py-0.5 rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-30 font-bold">↑</button><button type="button" title="1つ下へ移動" aria-label={`${row.title}を1つ下へ移動`} disabled={index === timetableRows.length - 1} onClick={() => moveTimetableRow(index, 1)} className="px-1.5 py-0.5 rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-30 font-bold">↓</button></div></td><td className="border border-slate-300 p-1 text-center">{row.order}</td><td className="border border-slate-300 p-1 text-center font-bold"><input type="time" value={row.startTime} onChange={event => updateTimetableStartTime(row.key, event.target.value)} onInput={event => updateTimetableStartTime(row.key, event.currentTarget.value)} onBlur={event => updateTimetableStartTime(row.key, event.currentTarget.value)} step="60" className="w-24 p-1 border border-slate-300 rounded font-bold print:border-0 print:p-0" aria-label={`${row.title}の開始時刻`} /></td><td className="border border-slate-300 p-1 text-center">{row.durationMinutes}分</td><td className="border border-slate-300 p-1 text-center">{row.callStartTime}</td><td className="border border-slate-300 p-1 text-center">{row.callCompleteTime}</td><td className="border border-slate-300 p-1">{row.title}</td><td className="border border-slate-300 p-1 text-center">{row.venue}</td><td className="border border-slate-300 p-1 text-center">{row.round}</td><td className="border border-slate-300 p-1 text-center">{row.heats}</td><td className="border border-slate-300 p-1 text-center">{row.participants}</td></tr>; })}</tbody></table></div></section>;
+                    return <section key={section} className="mb-7"><h2 className="text-base font-black border-b-2 border-slate-800 pb-1 mb-2">{section}競技</h2><p className="text-[11px] text-slate-500 mb-2 print:hidden">行をドラッグして移動するか、↑↓ボタンで競技順を変更できます。開始時刻を変更すると、全競技を所要時間に沿って自動調整します。</p><div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表は左右にスワイプして全列を確認できます</div><div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}><table className="min-w-[1100px] w-full text-xs border-collapse"><thead><tr className="bg-slate-100"><th className="border border-slate-300 p-1 print:hidden">移動</th><th className="border border-slate-300 p-1">順序</th><th className="border border-slate-300 p-1">開始時間</th><th className="border border-slate-300 p-1">所要時間</th><th className="border border-slate-300 p-1">招集開始</th><th className="border border-slate-300 p-1">招集完了</th><th className="border border-slate-300 p-1 text-left">競技名</th><th className="border border-slate-300 p-1">競技場所</th><th className="border border-slate-300 p-1">ラウンド</th><th className="border border-slate-300 p-1">組数</th><th className="border border-slate-300 p-1">参加人数</th></tr></thead><tbody>{sectionRows.map(row => { const index = timetableRows.findIndex(item => item.key === row.key); return <tr key={row.key} draggable onDragStart={() => setDraggingTimetableIndex(index)} onDragOver={event => event.preventDefault()} onDrop={() => handleTimetableDrop(index)} className={draggingTimetableIndex === index ? 'bg-indigo-50 opacity-60' : 'hover:bg-slate-50'}><td className="border border-slate-300 p-1 text-center print:hidden"><div className="flex items-center justify-center gap-1"><button type="button" title="1つ上へ移動" aria-label={`${row.title}を1つ上へ移動`} disabled={index === 0} onClick={() => moveTimetableRow(index, -1)} className="px-1.5 py-0.5 rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-30 font-bold">↑</button><button type="button" title="1つ下へ移動" aria-label={`${row.title}を1つ下へ移動`} disabled={index === timetableRows.length - 1} onClick={() => moveTimetableRow(index, 1)} className="px-1.5 py-0.5 rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-30 font-bold">↓</button></div></td><td className="border border-slate-300 p-1 text-center">{row.order}</td><td className="border border-slate-300 p-1 text-center font-bold"><input type="time" value={row.startTime} onChange={event => updateTimetableStartTime(row.key, event.target.value)} onInput={event => updateTimetableStartTime(row.key, event.currentTarget.value)} onBlur={event => updateTimetableStartTime(row.key, event.currentTarget.value)} step="60" className="w-24 p-1 border border-slate-300 rounded font-bold print:border-0 print:p-0" aria-label={`${row.title}の開始時刻`} /></td><td className="border border-slate-300 p-1 text-center">{row.durationMinutes}分</td><td className="border border-slate-300 p-1 text-center">{row.callStartTime}</td><td className="border border-slate-300 p-1 text-center">{row.callCompleteTime}</td><td className="border border-slate-300 p-1">{row.title}</td><td className="border border-slate-300 p-1 text-center">{row.venue}</td><td className="border border-slate-300 p-1 text-center">{row.round}</td><td className="border border-slate-300 p-1 text-center">{row.heats}</td><td className="border border-slate-300 p-1 text-center">{row.participants}</td></tr>; })}</tbody></table></div></section>;
                   })}
                   {!timetableRows.length && <div className="py-16 text-center text-slate-400 text-sm">「組割りから自動生成」を押すとタイムテーブルが表示されます。</div>}
                 </div>
@@ -1792,9 +1792,9 @@ export default function App() {
                   <h2 className="text-lg font-black text-slate-800 flex items-center gap-2"><UserCheck size={20} className="text-indigo-600" />ログインユーザー管理</h2>
                   <p className="text-xs text-slate-500 mt-2">パスワードは表示されません。変更する場合だけ新しいパスワードを入力してください。</p>
                   <form onSubmit={handleUpdateUser} className="mt-6 space-y-4">
-                    <label className="block text-sm font-bold text-slate-700">ログインID<input value={userEdit.username} onChange={event => setUserEdit({ ...userEdit, username: event.target.value })} autoComplete="username" required className="mt-1 w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-400" /></label>
-                    <label className="block text-sm font-bold text-slate-700">表示名<input value={userEdit.displayName} onChange={event => setUserEdit({ ...userEdit, displayName: event.target.value })} required className="mt-1 w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-400" /></label>
-                    <label className="block text-sm font-bold text-slate-700">新しいパスワード<span className="ml-2 text-xs font-normal text-slate-400">変更しない場合は空欄</span><input value={userEdit.password} onChange={event => setUserEdit({ ...userEdit, password: event.target.value })} type="password" autoComplete="new-password" minLength={12} placeholder="12文字以上推奨" className="mt-1 w-full px-3 py-2 rounded-lg bg-white border border-slate-300 text-sm text-slate-900 outline-none focus:ring-2 focus:ring-indigo-400" /></label>
+                    <label className="block text-sm font-bold text-slate-700">ログインID<input value={userEdit.username} onChange={event => setUserEdit({ ...userEdit, username: event.target.value })} autoComplete="username" required className="mt-1 w-full min-h-11 px-3 py-2 rounded-lg bg-white border border-slate-300 text-base text-slate-900 outline-none focus:ring-2 focus:ring-indigo-400" /></label>
+                    <label className="block text-sm font-bold text-slate-700">表示名<input value={userEdit.displayName} onChange={event => setUserEdit({ ...userEdit, displayName: event.target.value })} required className="mt-1 w-full min-h-11 px-3 py-2 rounded-lg bg-white border border-slate-300 text-base text-slate-900 outline-none focus:ring-2 focus:ring-indigo-400" /></label>
+                    <label className="block text-sm font-bold text-slate-700">新しいパスワード<span className="ml-2 text-xs font-normal text-slate-400">変更しない場合は空欄</span><input value={userEdit.password} onChange={event => setUserEdit({ ...userEdit, password: event.target.value })} type="password" autoComplete="new-password" minLength={12} placeholder="12文字以上推奨" className="mt-1 w-full min-h-11 px-3 py-2 rounded-lg bg-white border border-slate-300 text-base text-slate-900 outline-none focus:ring-2 focus:ring-indigo-400" /></label>
                     <div className="flex items-center justify-between gap-3 pt-2"><span className="text-sm font-bold text-emerald-600">{userEditMessage}</span><button type="submit" className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-bold">ユーザー情報を保存</button></div>
                   </form>
                 </div>
@@ -1802,7 +1802,7 @@ export default function App() {
                   {adminUsersMessage && <p className="mt-3 text-sm font-bold text-indigo-600">{adminUsersMessage}</p>}
                   <div className="mt-5 divide-y divide-slate-100 border-t border-slate-100">
                     {adminUsers.map(account => (
-                      <div key={account.id} className="py-3 flex items-center justify-between gap-3 text-sm">
+                      <div key={account.id} className="py-3 flex flex-wrap items-center justify-between gap-3 text-sm">
                         <div><span className="font-bold text-slate-800">{account.displayName}</span><span className="ml-2 text-slate-500">({account.username})</span></div>
                         {String(account.id) !== String(user?.id) && <button type="button" onClick={() => handleDeleteAdminUser(account.id)} className="px-3 py-1.5 text-xs font-bold text-rose-600 border border-rose-200 rounded-lg hover:bg-rose-50">削除</button>}
                       </div>
@@ -1814,7 +1814,7 @@ export default function App() {
             {/* 1. エントリー管理 */}
             {activeTab === 'entries' && (
               <div className="space-y-6">
-                <div className="flex border-b border-slate-200 gap-4">
+                <div className="flex border-b border-slate-200 gap-4 overflow-x-auto overscroll-x-contain whitespace-nowrap" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}>
                   <button
                     onClick={() => { setEntrySubTab('individual'); handleCancelEdit(); }}
                     className={`pb-3 text-xs font-bold flex items-center gap-2 border-b-2 transition-colors ${
@@ -1854,7 +1854,7 @@ export default function App() {
                           {editingId ? <Edit3 size={16} className="text-amber-600" /> : <Plus size={16} className="text-indigo-600" />}
                           {editingId ? '個人選手情報の編集' : '個人選手エントリー追加'}
                         </h2>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-1 min-w-0 items-center gap-2">
                           <button
                             onClick={() => handleDownloadSampleCSV('individual')}
                             className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
@@ -1874,14 +1874,14 @@ export default function App() {
                           placeholder="ゼッケン"
                           value={newIndividual.bib}
                           onChange={e => setNewIndividual({ ...newIndividual, bib: e.target.value })}
-                          className="p-2 border border-slate-300 rounded-lg text-xs"
+                          className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs"
                         />
                         <input
                           type="text"
                           placeholder="氏名"
                           value={newIndividual.name}
                           onChange={e => setNewIndividual({ ...newIndividual, name: e.target.value })}
-                          className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
+                          className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs font-bold"
                           required
                         />
                         <input
@@ -1889,7 +1889,7 @@ export default function App() {
                           placeholder="所属団体 (例: 水戸AC)"
                           value={newIndividual.affiliation}
                           onChange={e => setNewIndividual({ ...newIndividual, affiliation: e.target.value })}
-                          className="p-2 border border-slate-300 rounded-lg text-xs"
+                          className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs"
                           required
                         />
                         <select
@@ -1899,7 +1899,7 @@ export default function App() {
                             const events = getAvailableIndividualEvents(department, newIndividual.gender);
                             setNewIndividual({ ...newIndividual, department, event: events.includes(newIndividual.event) ? newIndividual.event : events[0] });
                           }}
-                          className="p-2 border border-slate-300 rounded-lg text-xs"
+                          className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs"
                         >
                           {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                         </select>
@@ -1910,14 +1910,14 @@ export default function App() {
                             const events = getAvailableIndividualEvents(newIndividual.department, gender);
                             setNewIndividual({ ...newIndividual, gender, event: events.includes(newIndividual.event) ? newIndividual.event : events[0] });
                           }}
-                          className="p-2 border border-slate-300 rounded-lg text-xs"
+                          className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs"
                         >
                           {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
                         </select>
                         <select
                           value={newIndividual.event}
                           onChange={e => setNewIndividual({ ...newIndividual, event: e.target.value })}
-                          className="p-2 border border-slate-300 rounded-lg text-xs font-bold text-indigo-600"
+                          className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs font-bold text-indigo-600"
                         >
                           {getAvailableIndividualEvents(newIndividual.department, newIndividual.gender).map(ev => <option key={ev} value={ev}>{ev}</option>)}
                         </select>
@@ -1926,7 +1926,7 @@ export default function App() {
                           placeholder="PB (例: 11.50)"
                           value={newIndividual.pb}
                           onChange={e => setNewIndividual({ ...newIndividual, pb: e.target.value })}
-                          className="p-2 border border-slate-300 rounded-lg text-xs font-mono"
+                          className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs font-mono"
                         />
                         <div className="md:col-span-7 flex justify-end gap-2 pt-2">
                           {editingId && (
@@ -1951,20 +1951,20 @@ export default function App() {
                     </div>
 
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="p-4 border-b border-slate-100 flex justify-between items-center">
-                        <div className="flex items-center gap-2">
+                      <div className="p-3 sm:p-4 border-b border-slate-100 flex flex-wrap items-center gap-3">
+                        <div className="flex flex-1 min-w-0 items-center gap-2">
                           <Search size={16} className="text-slate-400" />
                           <input
                             type="text"
                             placeholder="ゼッケン・氏名・所属で検索..."
                             value={searchTerm}
                             onChange={e => setSearchTerm(e.target.value)}
-                            className="p-2 border border-slate-200 rounded-lg text-xs w-64"
+                            className="w-full sm:w-64 min-h-11 px-3 py-2 border border-slate-200 rounded-lg text-base md:text-xs"
                           />
                         </div>
-                        <div className="flex items-center gap-3"><span className="text-xs text-slate-500 font-semibold">全 {individualEntries.length} 名</span><button type="button" onClick={handleBulkDeleteIndividuals} disabled={!selectedIndividualIds.length} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg text-xs font-bold">選択した個人を一括削除 ({selectedIndividualIds.length})</button></div>
+                        <div className="flex flex-wrap items-center gap-2"><span className="text-xs text-slate-500 font-semibold">全 {individualEntries.length} 名</span><button type="button" onClick={handleBulkDeleteIndividuals} disabled={!selectedIndividualIds.length} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg text-xs font-bold">選択した個人を一括削除 ({selectedIndividualIds.length})</button></div>
                       </div>
-                      <table className="w-full text-left text-xs border-collapse">
+                      <div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表は左右にスワイプして全列を確認できます</div><div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}><table className="min-w-[960px] w-full text-left text-xs border-collapse">
                         <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
                           <tr>
                             <th className="p-3 font-bold w-10 text-center"><input type="checkbox" aria-label="個人エントリーを全選択" checked={individualEntries.length > 0 && selectedIndividualIds.length === individualEntries.length} onChange={event => setSelectedIndividualIds(event.target.checked ? individualEntries.map(entry => entry.id) : [])} /></th>
@@ -1998,7 +1998,7 @@ export default function App() {
                               </tr>
                             ))}
                         </tbody>
-                      </table>
+                      </table></div>
                     </div>
                   </div>
                 )}
@@ -2035,14 +2035,14 @@ export default function App() {
                           placeholder="チームID/ゼッケン"
                           value={newRelayTeam.teamId}
                           onChange={e => setNewRelayTeam({ ...newRelayTeam, teamId: e.target.value })}
-                          className="p-2 border border-slate-300 rounded-lg text-xs"
+                          className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs"
                         />
                         <input
                           type="text"
                           placeholder="チーム名"
                           value={newRelayTeam.teamName}
                           onChange={e => setNewRelayTeam({ ...newRelayTeam, teamName: e.target.value })}
-                          className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
+                          className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs font-bold"
                           required
                         />
                         <input
@@ -2050,27 +2050,27 @@ export default function App() {
                           placeholder="所属団体"
                           value={newRelayTeam.affiliation}
                           onChange={e => setNewRelayTeam({ ...newRelayTeam, affiliation: e.target.value })}
-                          className="p-2 border border-slate-300 rounded-lg text-xs"
+                          className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs"
                           required
                         />
                         <select
                           value={newRelayTeam.department}
                           onChange={e => setNewRelayTeam({ ...newRelayTeam, department: e.target.value })}
-                          className="p-2 border border-slate-300 rounded-lg text-xs"
+                          className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs"
                         >
                           {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
                         </select>
                         <select
                           value={newRelayTeam.gender}
                           onChange={e => setNewRelayTeam({ ...newRelayTeam, gender: e.target.value })}
-                          className="p-2 border border-slate-300 rounded-lg text-xs"
+                          className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs"
                         >
                           {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
                         </select>
                         <select
                           value={newRelayTeam.event}
                           onChange={e => setNewRelayTeam({ ...newRelayTeam, event: e.target.value })}
-                          className="p-2 border border-slate-300 rounded-lg text-xs font-bold text-indigo-600"
+                          className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs font-bold text-indigo-600"
                         >
                           {RELAY_EVENTS.map(ev => <option key={ev} value={ev}>{ev}</option>)}
                         </select>
@@ -2079,7 +2079,7 @@ export default function App() {
                           placeholder="申込タイム"
                           value={newRelayTeam.pb}
                           onChange={e => setNewRelayTeam({ ...newRelayTeam, pb: e.target.value })}
-                          className="p-2 border border-slate-300 rounded-lg text-xs font-mono"
+                          className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs font-mono"
                         />
                         <div className="md:col-span-7 flex justify-end gap-2 pt-2">
                           {editingId && (
@@ -2104,7 +2104,7 @@ export default function App() {
                     </div>
 
                     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                      <div className="p-4 border-b border-slate-100 flex justify-between items-center">
+                      <div className="p-3 sm:p-4 border-b border-slate-100 flex flex-wrap items-center gap-3">
                         <div className="flex items-center gap-2">
                           <Search size={16} className="text-slate-400" />
                           <input
@@ -2112,12 +2112,12 @@ export default function App() {
                             placeholder="チーム名・所属で検索..."
                             value={searchTerm}
                             onChange={e => setSearchTerm(e.target.value)}
-                            className="p-2 border border-slate-200 rounded-lg text-xs w-64"
+                            className="w-full sm:w-64 min-h-11 px-3 py-2 border border-slate-200 rounded-lg text-base md:text-xs"
                           />
                         </div>
-                        <div className="flex items-center gap-3"><span className="text-xs text-slate-500 font-semibold">全 {relayTeams.length} チーム</span><button type="button" onClick={handleBulkDeleteRelays} disabled={!selectedRelayIds.length} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg text-xs font-bold">選択したリレーを一括削除 ({selectedRelayIds.length})</button></div>
+                        <div className="flex flex-wrap items-center gap-2"><span className="text-xs text-slate-500 font-semibold">全 {relayTeams.length} チーム</span><button type="button" onClick={handleBulkDeleteRelays} disabled={!selectedRelayIds.length} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg text-xs font-bold">選択したリレーを一括削除 ({selectedRelayIds.length})</button></div>
                       </div>
-                      <table className="w-full text-left text-xs border-collapse">
+                      <div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表は左右にスワイプして全列を確認できます</div><div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}><table className="min-w-[1100px] w-full text-left text-xs border-collapse">
                         <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
                           <tr>
                             <th className="p-3 font-bold w-10 text-center"><input type="checkbox" aria-label="リレーを全選択" checked={relayTeams.length > 0 && selectedRelayIds.length === relayTeams.length} onChange={event => setSelectedRelayIds(event.target.checked ? relayTeams.map(team => team.id) : [])} /></th>
@@ -2170,7 +2170,7 @@ export default function App() {
                               );
                             })}
                         </tbody>
-                      </table>
+                      </table></div>
                     </div>
                   </div>
                 )}
@@ -2274,7 +2274,7 @@ export default function App() {
             {/* 2. プログラム編成・組割り */}
             {activeTab === 'draws' && (
               <div className="space-y-6">
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
+                <div className="bg-white p-3 sm:p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
                   <div className="flex flex-wrap gap-3 w-full md:w-auto items-center">
                     <div className="flex items-center gap-1.5 text-xs text-slate-500 font-bold">
                       <Filter size={14} /> 条件設定:
@@ -2282,7 +2282,7 @@ export default function App() {
                     <select
                       value={selectedDepartment}
                       onChange={e => setSelectedDepartment(e.target.value)}
-                      className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
+                      className="w-full sm:w-auto min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs font-bold"
                     >
                       <option value="">全ての部門</option>
                       {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
@@ -2290,7 +2290,7 @@ export default function App() {
                     <select
                       value={selectedGender}
                       onChange={e => setSelectedGender(e.target.value)}
-                      className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
+                      className="w-full sm:w-auto min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs font-bold"
                     >
                       <option value="">全ての性別</option>
                       {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
@@ -2298,7 +2298,7 @@ export default function App() {
                     <select
                       value={selectedEvent}
                       onChange={e => setSelectedEvent(e.target.value)}
-                      className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
+                      className="w-full sm:w-auto min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs font-bold"
                     >
                       <option value="">全ての種目</option>
                       {ALL_EVENTS.map(ev => <option key={ev} value={ev}>{ev}</option>)}
@@ -2341,7 +2341,7 @@ export default function App() {
                   Object.keys(draws).length ? (
                     <div className="space-y-4">{Object.entries(draws).map(([key, races]) => {
                       const meta = parseDrawKey(key);
-                      return <div key={key} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"><div className="bg-slate-800 text-white px-4 py-3 text-sm font-black">{meta.department} {meta.gender} {meta.event}（{races.length}組）</div><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">組</th><th className="p-3">レーン/試技順</th><th className="p-3">ID/ゼッケン</th><th className="p-3">氏名/チーム名</th><th className="p-3">所属</th><th className="p-3">申込タイム/PB</th></tr></thead><tbody className="divide-y divide-slate-100">{races.flatMap(race => race.lanes.map(item => <tr key={`${race.raceNumber}-${item.lane}`}><td className="p-3">第{race.raceNumber}組</td><td className="p-3 text-center font-bold text-indigo-600">{item.lane}</td><td className="p-3">{item.athlete.bib || '-'}</td><td className="p-3 font-bold">{item.athlete.name}</td><td className="p-3 text-slate-600">{item.athlete.affiliation}</td><td className="p-3">{item.athlete.pb || '-'}</td></tr>))}</tbody></table></div>;
+                      return <div key={key} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"><div className="bg-slate-800 text-white px-4 py-3 text-sm font-black">{meta.department} {meta.gender} {meta.event}（{races.length}組）</div><div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表は左右にスワイプして全列を確認できます</div><div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}><table className="min-w-[900px] w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">組</th><th className="p-3">レーン/試技順</th><th className="p-3">ID/ゼッケン</th><th className="p-3">氏名/チーム名</th><th className="p-3">所属</th><th className="p-3">申込タイム/PB</th></tr></thead><tbody className="divide-y divide-slate-100">{races.flatMap(race => race.lanes.map(item => <tr key={`${race.raceNumber}-${item.lane}`}><td className="p-3">第{race.raceNumber}組</td><td className="p-3 text-center font-bold text-indigo-600">{item.lane}</td><td className="p-3">{item.athlete.bib || '-'}</td><td className="p-3 font-bold">{item.athlete.name}</td><td className="p-3 text-slate-600">{item.athlete.affiliation}</td><td className="p-3">{item.athlete.pb || '-'}</td></tr>))}</tbody></table></div></div>;
                     })}</div>
                   ) : <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 text-slate-400 text-xs">表示できる組割りデータがありません。</div>
                 ) : draws[currentKey] ? (
@@ -2362,7 +2362,7 @@ export default function App() {
                             </span>
                           )}
                         </div>
-                        <table className="w-full text-left text-xs">
+                        <div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表は左右にスワイプして全列を確認できます</div><div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}><table className="min-w-[820px] w-full text-left text-xs">
                           <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
                             <tr>
                               <th className="p-3 text-center w-16 font-bold">{isFieldEvent(selectedEvent) ? '試技順' : 'レーン/並び'}</th>
@@ -2410,7 +2410,7 @@ export default function App() {
                               </tr>
                             ))}
                           </tbody>
-                        </table>
+                        </table></div>
                       </div>
                     ))}
                   </div>
@@ -2425,11 +2425,11 @@ export default function App() {
             {/* 3. 競技結果入力 (トラック種目: 着順順にレーン番号自動照会入力 / フィールド種目: 5回試技記録入力) */}
             {activeTab === 'results' && (
               <div className="space-y-6">
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-3 items-center">
+                <div className="bg-white p-3 sm:p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-3 items-center">
                   <select
                     value={selectedDepartment}
                     onChange={e => { setManualEntryTargetKey(''); setSelectedDepartment(e.target.value); }}
-                    className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
+                    className="w-full sm:w-auto min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs font-bold"
                   >
                     <option value="">全ての部門</option>
                     {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
@@ -2437,7 +2437,7 @@ export default function App() {
                   <select
                     value={selectedGender}
                     onChange={e => { setManualEntryTargetKey(''); setSelectedGender(e.target.value); }}
-                    className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
+                    className="w-full sm:w-auto min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs font-bold"
                   >
                     <option value="">全ての性別</option>
                     {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
@@ -2445,7 +2445,7 @@ export default function App() {
                   <select
                     value={selectedEvent}
                     onChange={e => { setManualEntryTargetKey(''); setSelectedEvent(e.target.value); }}
-                    className="p-2 border border-slate-300 rounded-lg text-xs font-bold"
+                    className="w-full sm:w-auto min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs font-bold"
                   >
                     <option value="">全ての種目</option>
                     {ALL_EVENTS.map(ev => <option key={ev} value={ev}>{ev}</option>)}
@@ -2458,7 +2458,7 @@ export default function App() {
                   <button
                     type="button"
                     onClick={handleRandomizeResults}
-                    className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-colors shadow-sm"
+                    className="w-full sm:w-auto min-h-11 flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-colors shadow-sm"
                     title={allConditionMode ? '全競技にランダムなテスト結果を入力' : '選択中の全組にランダムなテスト結果を入力'}
                   >
                     <Shuffle size={14} /> {allConditionMode ? '全競技にランダム入力' : 'テスト結果をランダム入力'}
@@ -2467,7 +2467,7 @@ export default function App() {
                     <button
                       type="button"
                       onClick={handleExportResultsCsv}
-                      className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm"
+                      className="w-full sm:w-auto min-h-11 flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm"
                     >
                       <Download size={14} /> 全競技結果をCSV出力
                     </button>
@@ -2479,12 +2479,12 @@ export default function App() {
                     <h2 className="text-sm font-black text-indigo-950">結果を手入力する競技を選択</h2>
                     <p className="mt-1 text-xs text-indigo-800">部門ごとの選択メニューから競技を選び、入力画面を開きます。</p>
                   </div>
-                  <label className="text-xs font-bold text-slate-700 sm:min-w-72">
+                  <label className="w-full sm:min-w-72 text-xs font-bold text-slate-700">
                     手入力する競技
                     <select
                       value={manualEntryTargetKey || (draws[currentKey] ? currentKey : '')}
                       onChange={event => setManualEntryTargetKey(event.target.value)}
-                      className="mt-1 w-full p-2.5 border border-indigo-200 rounded-lg bg-white text-sm"
+                      className="mt-1 w-full min-h-11 px-3 py-2.5 border border-indigo-200 rounded-lg bg-white text-base md:text-sm"
                     >
                       <option value="">競技を選択してください</option>
                       {Array.from(new Set(Object.keys(draws).map(key => parseDrawKey(key).department))).sort((a, b) => a.localeCompare(b, 'ja')).map(department => (
@@ -2507,7 +2507,7 @@ export default function App() {
                     type="button"
                     onClick={openManualResultsEntry}
                     disabled={!manualEntryTargetKey && !draws[currentKey]}
-                    className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-sm"
+                    className="w-full sm:w-auto min-h-11 flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-sm"
                   >
                     <FileEdit size={14} /> 選択した競技を手入力
                   </button>
@@ -2532,7 +2532,7 @@ export default function App() {
                       {getResultSummaryGroups(resultSummaryMode === 'top8' ? 8 : null).map(group => (
                         <div key={`${group.department}-${group.gender}-${group.event}`} className="border border-slate-200 rounded-xl overflow-hidden">
                           <div className="bg-slate-900 text-white px-4 py-2.5 text-sm font-black">{group.department} {group.gender} {group.event}</div>
-                          <div className="overflow-x-auto"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-2.5">順位</th><th className="p-2.5">組</th><th className="p-2.5">ゼッケン</th><th className="p-2.5">氏名／チーム名</th><th className="p-2.5">所属</th><th className="p-2.5">記録</th><th className="p-2.5">風速</th><th className="p-2.5">状態</th></tr></thead><tbody className="divide-y divide-slate-100">{group.rows.map((row, index) => <tr key={`${row.athleteId}-${row.raceNumber}-${index}`}><td className="p-2.5 font-black text-indigo-700">{row.summaryRank}</td><td className="p-2.5">第{row.raceNumber}組</td><td className="p-2.5 font-mono">{row.bib || '-'}</td><td className="p-2.5 font-bold">{row.name}</td><td className="p-2.5 text-slate-600">{row.affiliation}</td><td className="p-2.5 font-mono font-bold">{row.time || '-'}</td><td className="p-2.5">{row.wind || '-'}</td><td className="p-2.5">{row.status || 'OK'}</td></tr>)}</tbody></table></div>
+                          <div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}><table className="min-w-[800px] w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-2.5">順位</th><th className="p-2.5">組</th><th className="p-2.5">ゼッケン</th><th className="p-2.5">氏名／チーム名</th><th className="p-2.5">所属</th><th className="p-2.5">記録</th><th className="p-2.5">風速</th><th className="p-2.5">状態</th></tr></thead><tbody className="divide-y divide-slate-100">{group.rows.map((row, index) => <tr key={`${row.athleteId}-${row.raceNumber}-${index}`}><td className="p-2.5 font-black text-indigo-700">{row.summaryRank}</td><td className="p-2.5">第{row.raceNumber}組</td><td className="p-2.5 font-mono">{row.bib || '-'}</td><td className="p-2.5 font-bold">{row.name}</td><td className="p-2.5 text-slate-600">{row.affiliation}</td><td className="p-2.5 font-mono font-bold">{row.time || '-'}</td><td className="p-2.5">{row.wind || '-'}</td><td className="p-2.5">{row.status || 'OK'}</td></tr>)}</tbody></table></div>
                         </div>
                       ))}
                     </div>
@@ -2543,7 +2543,7 @@ export default function App() {
                   resultDrawEntries.length ? (
                     <div className="space-y-4">{resultDrawEntries.map(([key, races]) => {
                       const meta = parseDrawKey(key);
-                      return <div key={key} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"><div className="bg-slate-900 text-white px-4 py-3 flex flex-wrap items-center justify-between gap-3"><span className="text-sm font-black">{meta.department} {meta.gender} {meta.event}（{races.length}組）</span></div><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">組</th><th className="p-3">レーン/試技順</th><th className="p-3">氏名/チーム名</th><th className="p-3">所属</th><th className="p-3">順位</th><th className="p-3">記録</th><th className="p-3">状態</th></tr></thead><tbody className="divide-y divide-slate-100">{races.flatMap(race => { const raceResults = results[`${key}-${race.raceNumber}`] || []; return race.lanes.map(item => { const result = raceResults.find(entry => entry.athleteId === item.athlete.id) || {}; return <tr key={`${race.raceNumber}-${item.lane}`}><td className="p-3">第{race.raceNumber}組</td><td className="p-3 text-center font-bold text-indigo-600">{item.lane}</td><td className="p-3 font-bold">{item.athlete.name}</td><td className="p-3 text-slate-600">{item.athlete.affiliation}</td><td className="p-3">{result.rank || '-'}</td><td className="p-3 font-mono">{result.time || '未入力'}</td><td className="p-3">{result.status || '未入力'}</td></tr>; }); })}</tbody></table></div>;
+                      return <div key={key} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"><div className="bg-slate-900 text-white px-4 py-3 flex flex-wrap items-center justify-between gap-3"><span className="text-sm font-black">{meta.department} {meta.gender} {meta.event}（{races.length}組）</span></div><div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表は左右にスワイプして全列を確認できます</div><div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}><table className="min-w-[900px] w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">組</th><th className="p-3">レーン/試技順</th><th className="p-3">氏名/チーム名</th><th className="p-3">所属</th><th className="p-3">順位</th><th className="p-3">記録</th><th className="p-3">状態</th></tr></thead><tbody className="divide-y divide-slate-100">{races.flatMap(race => { const raceResults = results[`${key}-${race.raceNumber}`] || []; return race.lanes.map(item => { const result = raceResults.find(entry => entry.athleteId === item.athlete.id) || {}; return <tr key={`${race.raceNumber}-${item.lane}`}><td className="p-3">第{race.raceNumber}組</td><td className="p-3 text-center font-bold text-indigo-600">{item.lane}</td><td className="p-3 font-bold">{item.athlete.name}</td><td className="p-3 text-slate-600">{item.athlete.affiliation}</td><td className="p-3">{result.rank || '-'}</td><td className="p-3 font-mono">{result.time || '未入力'}</td><td className="p-3">{result.status || '未入力'}</td></tr>; }); })}</tbody></table></div></div>;
                     })}</div>
                   ) : <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 text-slate-400 text-xs">表示できる組割りデータがありません。</div>
                 ) : draws[currentKey] ? (
@@ -2553,7 +2553,7 @@ export default function App() {
 
                     return (
                       <div key={race.raceNumber} id={race.raceNumber === draws[currentKey]?.[0]?.raceNumber ? 'results-entry-editor' : undefined} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                        <div className="bg-slate-900 text-white px-4 py-3 text-xs font-bold flex justify-between items-center">
+                        <div className="bg-slate-900 text-white px-4 py-3 text-xs font-bold flex flex-wrap justify-between items-start sm:items-center gap-2">
                           <span className="flex items-center gap-2">
                             <CheckCircle size={14} className="text-emerald-400" />
                             {selectedDepartment} {selectedGender} {selectedEvent} - 第 {race.raceNumber} 組み (結果入力)
@@ -2567,7 +2567,10 @@ export default function App() {
 
                         {/* トラック種目: 着順順に入力するテーブル */}
                         {!isField ? (
-                          <table className="w-full text-left text-xs">
+                          <>
+                            <div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表を左右にスワイプすると全項目を確認・入力できます</div>
+                            <div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}>
+                          <table className="min-w-[1020px] w-full text-left text-xs">
                             <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
                               <tr>
                                 <th className="p-3 text-center w-16 font-bold bg-amber-50/50">着順</th>
@@ -2602,7 +2605,7 @@ export default function App() {
                                           list={`lanes-list-${raceKey}-${rankIdx}`}
                                           value={athleteResult.lane || ''}
                                           onChange={e => handleTrackResultChange(raceKey, rankIdx, 'lane', e.target.value, race.lanes)}
-                                          className="p-1.5 border border-slate-300 rounded text-xs w-full font-bold text-center font-mono text-indigo-700 bg-indigo-50/30 focus:bg-white focus:ring-2 focus:ring-indigo-500"
+                                          className="min-h-11 min-w-[80px] px-2 border border-slate-300 rounded text-base md:text-xs w-full font-bold text-center font-mono text-indigo-700 bg-indigo-50/30 focus:bg-white focus:ring-2 focus:ring-indigo-500"
                                         />
                                         <datalist id={`lanes-list-${raceKey}-${rankIdx}`}>
                                           {race.lanes.map(l => (
@@ -2628,7 +2631,7 @@ export default function App() {
                                         placeholder="例: 11.20"
                                         value={athleteResult.time || ''}
                                         onChange={e => handleTrackResultChange(raceKey, rankIdx, 'time', e.target.value, race.lanes)}
-                                        className="p-1.5 border border-slate-300 rounded text-xs w-full font-mono font-bold"
+                                        className="min-h-11 min-w-[96px] px-2 border border-slate-300 rounded text-base md:text-xs w-full font-mono font-bold"
                                       />
                                     </td>
                                     <td className="p-3">
@@ -2637,14 +2640,14 @@ export default function App() {
                                         placeholder="+0.5"
                                         value={athleteResult.wind || '+0.0'}
                                         onChange={e => handleTrackResultChange(raceKey, rankIdx, 'wind', e.target.value, race.lanes)}
-                                        className="p-1.5 border border-slate-300 rounded text-xs w-full font-mono"
+                                        className="min-h-11 min-w-[80px] px-2 border border-slate-300 rounded text-base md:text-xs w-full font-mono"
                                       />
                                     </td>
                                     <td className="p-3">
                                       <select
                                         value={athleteResult.status || 'OK'}
                                         onChange={e => handleTrackResultChange(raceKey, rankIdx, 'status', e.target.value, race.lanes)}
-                                        className="p-1.5 border border-slate-300 rounded text-xs w-full"
+                                        className="min-h-11 min-w-[125px] px-2 border border-slate-300 rounded text-base md:text-xs w-full"
                                       >
                                         <option value="OK">完走 / 記録</option>
                                         <option value="DNS">DNS(欠場)</option>
@@ -2656,9 +2659,14 @@ export default function App() {
                               })}
                             </tbody>
                           </table>
+                            </div>
+                          </>
                         ) : (
                           /* フィールド種目: 試技順・5回試技記録入力テーブル */
-                          <table className="w-full text-left text-xs">
+                          <>
+                            <div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表を左右にスワイプすると全項目を確認・入力できます</div>
+                            <div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}>
+                          <table className="min-w-[1280px] w-full text-left text-xs">
                             <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
                               <tr>
                                 <th className="p-3 text-center w-12 font-bold">試技順</th>
@@ -2694,7 +2702,7 @@ export default function App() {
                                           placeholder="m"
                                           value={attempts[idx] || ''}
                                           onChange={e => handleFieldAttemptChange(raceKey, item.athlete.id, idx, e.target.value)}
-                                          className="p-1 border border-slate-300 rounded text-xs w-full text-center font-mono"
+                                          className="min-h-11 min-w-[72px] px-2 border border-slate-300 rounded text-base md:text-xs w-full text-center font-mono"
                                         />
                                       </td>
                                     ))}
@@ -2707,14 +2715,14 @@ export default function App() {
                                         placeholder="+0.5"
                                         value={athleteResult.wind || '+0.0'}
                                         onChange={e => handleFieldGeneralChange(raceKey, item.athlete.id, 'wind', e.target.value)}
-                                        className="p-1.5 border border-slate-300 rounded text-xs w-full font-mono"
+                                        className="min-h-11 min-w-[80px] px-2 border border-slate-300 rounded text-base md:text-xs w-full font-mono"
                                       />
                                     </td>
                                     <td className="p-3">
                                       <select
                                         value={athleteResult.status || 'OK'}
                                         onChange={e => handleFieldGeneralChange(raceKey, item.athlete.id, 'status', e.target.value)}
-                                        className="p-1.5 border border-slate-300 rounded text-xs w-full"
+                                        className="min-h-11 min-w-[125px] px-2 border border-slate-300 rounded text-base md:text-xs w-full"
                                       >
                                         <option value="OK">完走 / 記録</option>
                                         <option value="DNS">DNS(欠場)</option>
@@ -2730,6 +2738,8 @@ export default function App() {
                               })}
                             </tbody>
                           </table>
+                            </div>
+                          </>
                         )}
                       </div>
                     );
@@ -2751,8 +2761,8 @@ export default function App() {
                     </span>
                   </div>
                   {overallFinalResults.length > 0 ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs">
+                    <div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}>
+                      <table className="min-w-[820px] w-full text-left text-xs">
                         <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
                           <tr>
                             <th className="p-3 text-center w-16 font-bold">総合順位</th>
@@ -2834,7 +2844,7 @@ export default function App() {
                             {isField ? 'フィールド種目 (5回試技)' : 'トラック種目'}
                           </span>
                         </div>
-                        <table className="w-full text-left text-xs">
+                        <div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表は左右にスワイプして全列を確認できます</div><div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}><table className="min-w-[820px] w-full text-left text-xs">
                           <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
                             <tr>
                               <th className="p-3 text-center w-16 font-bold">着順</th>
@@ -2877,7 +2887,7 @@ export default function App() {
                                 );
                               })}
                           </tbody>
-                        </table>
+                        </table></div>
                       </div>
                     );
                   })
@@ -2905,7 +2915,7 @@ export default function App() {
                         const target = findEntryById(r.athleteId);
                         if (!target || !r.time) return null;
                         return (
-                          <div key={r.athleteId || idx} className="flex justify-between items-center bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
+                          <div key={r.athleteId || idx} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
                             <div>
                               <span className="font-mono text-indigo-600 font-bold mr-2">#{target.bib || '-'}</span>
                               <span className="font-bold text-slate-800 mr-2">{target.name}</span>
@@ -2915,7 +2925,7 @@ export default function App() {
                               type="button"
                               onClick={() => handleCertificatePreview(target, raceKey, r, dept, gender, ev)}
                               aria-label={`${target.name}の賞状プレビューを表示`}
-                              className="px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-colors"
+                              className="w-full sm:w-auto min-h-11 px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-colors"
                             >
                               賞状プレビュー表示
                             </button>
