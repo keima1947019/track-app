@@ -4,11 +4,13 @@ CREATE TABLE IF NOT EXISTS meet_state (
   relay_teams JSON NOT NULL,
   draws JSON NOT NULL,
   results JSON NOT NULL,
+  timetable_config JSON NULL,
+  timetable_rows JSON NULL,
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
-INSERT INTO meet_state (id, individual_entries, relay_teams, draws, results)
-VALUES (1, JSON_ARRAY(), JSON_ARRAY(), JSON_OBJECT(), JSON_OBJECT())
+INSERT INTO meet_state (id, individual_entries, relay_teams, draws, results, timetable_config, timetable_rows)
+VALUES (1, JSON_ARRAY(), JSON_ARRAY(), JSON_OBJECT(), JSON_OBJECT(), NULL, NULL)
 ON DUPLICATE KEY UPDATE id = id;
 
 CREATE TABLE IF NOT EXISTS admin_users (

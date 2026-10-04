@@ -40,7 +40,7 @@ const isAdmin = (req) => {
     return false;
   }
 };
-const emptyState = () => ({ individualEntries: [], relayTeams: [], draws: {}, results: {} });
+const emptyState = () => ({ individualEntries: [], relayTeams: [], draws: {}, results: {}, timetableConfig: null, timetableRows: [] });
 
 async function ensureAdminUsersTable() {
   await pool.query(`CREATE TABLE IF NOT EXISTS admin_users (
@@ -61,8 +61,24 @@ async function ensureAdminUsersTable() {
   }
 }
 
+async function ensureMeetStateColumns() {
+  const [columns] = await pool.query(
+    `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'meet_state'`
+  );
+  const existing = new Set(columns.map(column => column.COLUMN_NAME));
+  for (const column of ['timetable_config', 'timetable_rows']) {
+    if (existing.has(column)) continue;
+    try {
+      await pool.query(`ALTER TABLE meet_state ADD COLUMN ${column} JSON NULL`);
+    } catch (error) {
+      if (error.code !== 'ER_DUP_FIELDNAME') throw error;
+    }
+  }
+}
+
 async function readState() {
-  const [rows] = await pool.query('SELECT individual_entries, relay_teams, draws, results FROM meet_state WHERE id = 1');
+  const [rows] = await pool.query('SELECT individual_entries, relay_teams, draws, results, timetable_config, timetable_rows FROM meet_state WHERE id = 1');
   if (!rows.length) return emptyState();
   const row = rows[0];
   const parse = (value, fallback) => {
@@ -72,7 +88,9 @@ async function readState() {
     individualEntries: parse(row.individual_entries, []),
     relayTeams: parse(row.relay_teams, []),
     draws: parse(row.draws, {}),
-    results: parse(row.results, {})
+    results: parse(row.results, {}),
+    timetableConfig: parse(row.timetable_config, null),
+    timetableRows: parse(row.timetable_rows, [])
   };
 }
 
@@ -138,14 +156,16 @@ app.put('/api/state', async (req, res) => {
     individualEntries: Array.isArray(body.individualEntries) ? body.individualEntries : [],
     relayTeams: Array.isArray(body.relayTeams) ? body.relayTeams : [],
     draws: body.draws && typeof body.draws === 'object' ? body.draws : {},
-    results: body.results && typeof body.results === 'object' ? body.results : {}
+    results: body.results && typeof body.results === 'object' ? body.results : {},
+    timetableConfig: body.timetableConfig && typeof body.timetableConfig === 'object' && !Array.isArray(body.timetableConfig) ? body.timetableConfig : null,
+    timetableRows: Array.isArray(body.timetableRows) ? body.timetableRows : []
   };
   try {
     await pool.query(
-      `INSERT INTO meet_state (id, individual_entries, relay_teams, draws, results)
-       VALUES (1, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE individual_entries = VALUES(individual_entries), relay_teams = VALUES(relay_teams), draws = VALUES(draws), results = VALUES(results)`,
-      [JSON.stringify(state.individualEntries), JSON.stringify(state.relayTeams), JSON.stringify(state.draws), JSON.stringify(state.results)]
+      `INSERT INTO meet_state (id, individual_entries, relay_teams, draws, results, timetable_config, timetable_rows)
+       VALUES (1, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE individual_entries = VALUES(individual_entries), relay_teams = VALUES(relay_teams), draws = VALUES(draws), results = VALUES(results), timetable_config = VALUES(timetable_config), timetable_rows = VALUES(timetable_rows)`,
+      [JSON.stringify(state.individualEntries), JSON.stringify(state.relayTeams), JSON.stringify(state.draws), JSON.stringify(state.results), JSON.stringify(state.timetableConfig), JSON.stringify(state.timetableRows)]
     );
     res.json({ ok: true, state });
   } catch (error) {
@@ -158,6 +178,7 @@ const start = async () => {
   try {
     await pool.query('SELECT 1');
     await ensureAdminUsersTable();
+    await ensureMeetStateColumns();
     console.log('MariaDB connection: OK');
     app.listen(port, '0.0.0.0', () => console.log(`track-app-api listening on ${port}`));
   } catch (error) {
