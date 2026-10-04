@@ -1,29 +1,29 @@
-# 陸上競技大会運営支援ツール
+# Track and Field Meet Management Support Tool
 
-## プロジェクト概要
+## Project Overview
 
-このプロジェクトは、陸上競技の記録会や大会を運営する際に役立つツールを開発するためのものです。選手のエントリー管理から競技結果の記録、速報の共有、帳票作成まで、大会運営に関わる情報を扱いやすくすることを目指しています。
+This project aims to develop tools to assist in the organization of track and field meet and competitions. It seeks to streamline the handling of information related to event management—from managing athlete entries to recording competition results, sharing real-time updates, and generating reports.
 
-競技役員や大会事務局の作業負担を軽減し、記録や進行状況を関係者が確認しやすくすることで、円滑で正確な大会運営を支援します。選手や観客にとっても、競技結果を分かりやすく確認できる環境づくりを目標としています。
+By reducing the workload on competition officials and event organizers and making it easier for stakeholders to check records and progress, the project supports the smooth and accurate operation of events. It also aims to create an environment where athletes and spectators can easily view competition results.
 
-## 主な機能
+## Key Features
 
-- 選手エントリー情報の一覧・検索・管理
-- 種目・性別ごとのプログラム編成と組割当
-- トラック競技の記録、順位、風速の入力
-- トラック結果の共通到着順入力。短距離はゼッケン番号、1000m以上は種目別エントリー番号で選手を照合
-- 選択した組以外のゼッケン番号を検出して警告
-- フィールド競技の試技記録と最高記録の管理
-- チーム順位・総合得点の表示
-- 選手や観客向けのリアルタイム速報画面プレビュー
-- 賞状、プログラム、公式リザルトなどの帳票出力画面
-- 選手情報および競技記録のGoogle Driveバックアップ
+- Listing, searching, and managing athlete entry information
+- Scheduling and heat assignments by event and gender
+- Entering track event records, rankings, and wind speeds
+- Entering the overall finishing order for track results. Athletes are identified by bib number for sprints and by event-specific entry number for events of 1,000 meters or longer
+- Detecting bib numbers from heats other than the selected one and issuing a warning
+- Management of attempt records and best marks for field events
+- Display of team standings and total scores
+- Preview of real-time live update screens for athletes and spectators
+- Report output screens for certificates, programs, official results, and other documents
 
-## 開発状況
 
-本アプリは、大会運営を支援する画面と操作の実用性を検討しながら開発中です。サンプルデータやシミュレーションを使う機能、外部サービスとの接続設定が必要な機能が含まれます。実際の大会で使用する場合は、記録の正確性、権限管理、バックアップ、使用する競技規則への適合を事前に確認してください。
+## Development Status
 
-## 技術スタック
+This app is currently under development, with a focus on ensuring the practicality of its screens and operations to support tournament management. It includes features that utilize sample data and simulations, as well as features that require configuration to connect with external services. Before using this app in an actual tournament, please verify the accuracy of the records, permission management, backup procedures, and compliance with the applicable competition rules.
+
+## Technology Stack
 
 - React
 - Vite
@@ -31,40 +31,17 @@
 - lucide-react
 - Docker / Nginx
 
-## 開発環境の起動
+## Starting the Development Environment
 
-Node.js 20以降を用意し、プロジェクトのルートで次を実行します。
+Set up Node.js 20 or later, and run the following command in the project root directory.
 
 ```bash
 npm install
 npm run dev
 ```
 
-本番向けの静的ファイルを生成するには、次を実行します。
+To generate static files for production, do the following:
 
 ```bash
 npm run build
 ```
-
-## Dockerでの起動
-
-```powershell
-docker build -t track-app .
-docker run -d --name track-app -p 8081:80 track-app
-```
-
-起動後は `http://localhost:8081` でアクセスできます。
-
-## Google Drive連携
-
-アプリを開くと、Google OAuthでログインするまで大会管理画面は表示されません。OAuth同意画面ではアカウント識別用の`openid`・`email`・`profile`と、バックアップ用の`drive.file`スコープを使用します。
-
-ログイン中のアクセストークンは現在のタブの`sessionStorage`に保持し、ページ更新時にはGoogleへ有効性を確認します。選手エントリー、トラック・フィールド記録、タイム決勝記録は同じブラウザーの`localStorage`へ自動保存されます。別の端末やブラウザーとの共有にはGoogle Driveバックアップを使用してください。
-
-Google Driveへのバックアップには、Google CloudでDrive APIを有効化し、Webアプリケーション用のOAuth Client IDを設定する必要があります。Client IDはビルド時に指定します。
-
-```powershell
-docker build --build-arg VITE_GOOGLE_CLIENT_ID="your-web-client-id.apps.googleusercontent.com" -t track-app .
-```
-
-OAuthの承認済みJavaScript生成元には、実際にアプリへアクセスするURL（例: `http://localhost:8081`）を登録してください。ブラウザーに置くClient IDは公開識別子です。Client Secretなどの秘密情報をフロントエンドへ含めないでください。
