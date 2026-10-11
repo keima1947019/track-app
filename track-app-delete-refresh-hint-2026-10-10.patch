@@ -1,0 +1,16 @@
+diff --git a/TrackAndFieldApp.jsx b/TrackAndFieldApp.jsx
+index a6fb8df..628b2a0 100644
+--- a/TrackAndFieldApp.jsx
++++ b/TrackAndFieldApp.jsx
+@@ -1844,6 +1844,11 @@ export default function App() {
+           </div>
+         ) : (
+           <>
++            {['entries', 'draws', 'results'].includes(activeTab) && (
++              <p className="mb-3 text-right text-[11px] text-slate-400">
++                エントリー削除後、プログラム編成・競技結果入力の表示が更新されない場合は、画面を更新してください。
++              </p>
++            )}
+             {activeTab === 'timetable' && (
+               <div className="space-y-6">
+                 <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm print:hidden">

@@ -12,6 +12,8 @@ services:
       api:
         condition: service_started
     restart: unless-stopped
+    volumes:
+      - /var/log/track-app/nginx:/var/log/nginx
 
   api:
     build: ./api

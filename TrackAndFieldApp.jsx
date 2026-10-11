@@ -391,6 +391,7 @@ export default function App() {
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminUsersMessage, setAdminUsersMessage] = useState('');
   const [authError, setAuthError] = useState('');
+  const deleteSaveInProgress = useRef(false);
 
   // アプリデータ State
   const [individualEntries, setIndividualEntries] = useState([]);
@@ -732,6 +733,71 @@ export default function App() {
     });
   };
 
+  const buildMeetStateAfterEntryDeletion = (entries) => {
+    const removedIds = new Set(entries.map(entry => String(entry.id)));
+    const nextDraws = { ...draws };
+    Object.entries(draws).forEach(([key, races]) => {
+      if (!Array.isArray(races)) return;
+      let drawChanged = false;
+      const remainingRaces = races.map(race => {
+        const lanes = Array.isArray(race.lanes) ? race.lanes : [];
+        const remainingLanes = lanes.filter(item => !removedIds.has(String(item?.athlete?.id)));
+        if (remainingLanes.length === lanes.length) return race;
+        drawChanged = true;
+        return remainingLanes.length ? { ...race, lanes: remainingLanes } : null;
+      }).filter(Boolean);
+      if (!drawChanged) return;
+      if (remainingRaces.length) nextDraws[key] = remainingRaces;
+      else delete nextDraws[key];
+    });
+
+    const nextResults = { ...results };
+    Object.entries(results).forEach(([raceKey, raceResults]) => {
+      if (!Array.isArray(raceResults)) return;
+      const remainingResults = raceResults.filter(result => !removedIds.has(String(result?.athleteId)));
+      if (remainingResults.length === raceResults.length) return;
+      if (remainingResults.length) nextResults[raceKey] = remainingResults;
+      else delete nextResults[raceKey];
+    });
+    return { draws: nextDraws, results: nextResults };
+  };
+
+  const persistEntryDeletion = async (entries, nextIndividuals, nextRelays) => {
+    if (deleteSaveInProgress.current || !entries.length) return false;
+    deleteSaveInProgress.current = true;
+    try {
+      const { draws: nextDraws, results: nextResults } = buildMeetStateAfterEntryDeletion(entries);
+      if (!user || !authToken) throw new Error('admin_session_required');
+      const nextState = {
+        individualEntries: nextIndividuals,
+        relayTeams: nextRelays,
+        draws: nextDraws,
+        results: nextResults,
+        timetableConfig,
+        timetableRows
+      };
+      const response = await fetch(`${API_BASE_URL}/state`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify(nextState)
+      });
+      if (!response.ok) throw new Error(`state_save_failed_${response.status}`);
+      try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState)); }
+      catch (error) { console.warn('ローカル保存に失敗しました。', error); }
+      setIndividualEntries(nextIndividuals);
+      setRelayTeams(nextRelays);
+      setDraws(nextDraws);
+      setResults(nextResults);
+      return true;
+    } catch (error) {
+      console.error('削除内容を共有APIに保存できませんでした。', error);
+      alert('削除内容をサーバーに保存できなかったため、削除を確定できませんでした。通信状態を確認して、もう一度お試しください。');
+      return false;
+    } finally {
+      deleteSaveInProgress.current = false;
+    }
+  };
+
   const handleSaveIndividual = (e) => {
     e.preventDefault();
     const cleaned = { ...newIndividual, name: newIndividual.name.trim(), affiliation: newIndividual.affiliation.trim() };
@@ -909,38 +975,40 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  const handleDeleteIndividual = (id) => {
-    if (window.confirm('この選手エントリーを削除しますか？')) {
-      setIndividualEntries(prev => prev.filter(e => e.id !== id));
+  const handleDeleteIndividual = async (id) => {
+    if (!window.confirm('この選手エントリーを削除しますか？')) return;
+    const deletedEntry = individualEntries.find(entry => entry.id === id);
+    if (!deletedEntry) return;
+    const nextIndividuals = individualEntries.filter(entry => entry.id !== id);
+    if (await persistEntryDeletion([deletedEntry], nextIndividuals, relayTeams)) {
       setSelectedIndividualIds(prev => prev.filter(selectedId => selectedId !== id));
     }
   };
 
-  const handleDeleteRelay = (id) => {
-    if (window.confirm('このリレーチームエントリーを削除しますか？')) {
-      setRelayTeams(prev => prev.filter(t => t.id !== id));
+  const handleDeleteRelay = async (id) => {
+    if (!window.confirm('このリレーチームエントリーを削除しますか？')) return;
+    const deletedTeam = relayTeams.find(team => team.id === id);
+    if (!deletedTeam) return;
+    const nextRelays = relayTeams.filter(team => team.id !== id);
+    if (await persistEntryDeletion([deletedTeam], individualEntries, nextRelays)) {
       setSelectedRelayIds(prev => prev.filter(selectedId => selectedId !== id));
     }
   };
 
-  const handleBulkDeleteIndividuals = () => {
+  const handleBulkDeleteIndividuals = async () => {
     if (!selectedIndividualIds.length) return;
     if (!window.confirm(`選択した${selectedIndividualIds.length}件の個人エントリーを削除しますか？この操作は元に戻せません。`)) return;
     const selected = individualEntries.filter(entry => selectedIndividualIds.includes(entry.id));
     const nextIndividuals = individualEntries.filter(entry => !selectedIndividualIds.includes(entry.id));
-    setIndividualEntries(nextIndividuals);
-    setSelectedIndividualIds([]);
-    rebuildDrawsFor(selected.map(entry => ({ department: entry.department, gender: entry.gender, event: entry.event })), nextIndividuals, relayTeams);
+    if (await persistEntryDeletion(selected, nextIndividuals, relayTeams)) setSelectedIndividualIds([]);
   };
 
-  const handleBulkDeleteRelays = () => {
+  const handleBulkDeleteRelays = async () => {
     if (!selectedRelayIds.length) return;
     if (!window.confirm(`選択した${selectedRelayIds.length}件のリレーチームを削除しますか？この操作は元に戻せません。`)) return;
     const selected = relayTeams.filter(team => selectedRelayIds.includes(team.id));
     const nextRelays = relayTeams.filter(team => !selectedRelayIds.includes(team.id));
-    setRelayTeams(nextRelays);
-    setSelectedRelayIds([]);
-    rebuildDrawsFor(selected.map(team => ({ department: team.department, gender: team.gender, event: team.event })), individualEntries, nextRelays);
+    if (await persistEntryDeletion(selected, individualEntries, nextRelays)) setSelectedRelayIds([]);
   };
 
   const findEntryById = (id) => {
@@ -1776,6 +1844,11 @@ export default function App() {
           </div>
         ) : (
           <>
+            {['entries', 'draws', 'results'].includes(activeTab) && (
+              <p className="mb-3 text-right text-[11px] text-slate-400">
+                エントリー削除後、プログラム編成・競技結果入力の表示が更新されない場合は、画面を更新してください。
+              </p>
+            )}
             {activeTab === 'timetable' && (
               <div className="space-y-6">
                 <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm print:hidden">
