@@ -1,0 +1,44 @@
+diff --git a/TrackAndFieldApp.jsx b/TrackAndFieldApp.jsx
+index e1d455c..ed60a52 100644
+--- a/TrackAndFieldApp.jsx
++++ b/TrackAndFieldApp.jsx
+@@ -1137,6 +1137,19 @@ export default function App() {
+     return null;
+   };
+ 
++  const hasActiveResultEntry = (raceKey, result) => {
++    const athleteId = String(result?.athleteId ?? '').trim();
++    if (!athleteId) return false;
++    const entry = individualEntries.find(item => String(item.id) === athleteId)
++      || relayTeams.find(item => String(item.id) === athleteId);
++    if (!entry) return false;
++    const [department, gender, event] = raceKey.split('-');
++    return entry.department === department && entry.gender === gender && entry.event === event;
++  };
++  const visibleLiveResultGroups = Object.entries(results || {}).filter(([raceKey, raceResults]) =>
++    Array.isArray(raceResults) && raceResults.some(result => hasActiveResultEntry(raceKey, result))
++  );
++
+   // 2. 自動組割り編成 (1500m/3000m/フィールド種目は1組のみに固定)
+   const generateDraws = () => {
+     const effectiveLanes = Number.isInteger(lanesPerRace) && lanesPerRace >= 4 ? lanesPerRace : 6;
+@@ -3212,8 +3225,8 @@ export default function App() {
+                   </div>
+                 )}
+ 
+-                {Object.keys(results).length > 0 ? (
+-                  Object.entries(results).map(([raceKey, raceResults]) => {
++                {visibleLiveResultGroups.length > 0 ? (
++                  visibleLiveResultGroups.map(([raceKey, raceResults]) => {
+                     const [dept, gender, ev, raceNum] = raceKey.split('-');
+                     const isField = isFieldEvent(ev);
+ 
+@@ -3238,7 +3251,7 @@ export default function App() {
+                             </tr>
+                           </thead>
+                           <tbody className="divide-y divide-slate-100">
+-                            {[...raceResults]
++                            {raceResults.filter(result => hasActiveResultEntry(raceKey, result))
+                               .sort((a, b) => (parseInt(a.rank) || 99) - (parseInt(b.rank) || 99))
+                               .map((r, idx) => {
+                                 const target = findEntryById(r.athleteId);
