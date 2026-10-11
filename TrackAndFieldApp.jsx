@@ -442,6 +442,10 @@ export default function App() {
   const [adminUsersMessage, setAdminUsersMessage] = useState('');
   const [authError, setAuthError] = useState('');
   const deleteSaveInProgress = useRef(false);
+  const entrySaveInProgress = useRef(false);
+  const stateSaveQueueRef = useRef(Promise.resolve());
+  const pendingStateSaveTimerRef = useRef(null);
+  const [isEntrySaving, setIsEntrySaving] = useState(false);
 
   // アプリデータ State
   const [individualEntries, setIndividualEntries] = useState([]);
@@ -490,6 +494,52 @@ export default function App() {
   const { isAdminPage, isPublicLivePage, isForbiddenPage } = getPageContext();
   // 403（公開URLでも管理URLでもない）場合のみ非表示。ログイン状態の復元中も画面は表示し続ける
   const canRenderApp = !isForbiddenPage;
+
+  const cancelPendingStateSave = () => {
+    if (pendingStateSaveTimerRef.current !== null) {
+      window.clearTimeout(pendingStateSaveTimerRef.current);
+      pendingStateSaveTimerRef.current = null;
+    }
+  };
+
+  const queueMeetStateSave = (stateSnapshot, token = authToken) => {
+    const request = stateSaveQueueRef.current.catch(() => undefined).then(async () => {
+      if (!token) throw new Error('admin_session_required');
+      const response = await fetch(`${API_BASE_URL}/state`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(stateSnapshot)
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || body?.ok !== true) throw new Error(`state_save_failed_${response.status}`);
+      return body;
+    });
+    stateSaveQueueRef.current = request.then(() => undefined, () => undefined);
+    return request;
+  };
+
+  const persistEntryStateNow = async (nextState) => {
+    if (entrySaveInProgress.current) {
+      alert('別のエントリー保存が進行中です。完了してからもう一度お試しください。');
+      return false;
+    }
+    entrySaveInProgress.current = true;
+    setIsEntrySaving(true);
+    cancelPendingStateSave();
+    try {
+      await queueMeetStateSave(nextState, authToken);
+      try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState)); }
+      catch (error) { console.warn('エントリーのローカル保存に失敗しました。', error); }
+      return true;
+    } catch (error) {
+      console.error('エントリーを共有APIに保存できませんでした。', error);
+      alert('サーバーに保存できなかったため、エントリーを確定できませんでした。入力内容はそのままです。通信状態を確認して再度お試しください。');
+      return false;
+    } finally {
+      entrySaveInProgress.current = false;
+      setIsEntrySaving(false);
+    }
+  };
 
   useEffect(() => {
     if (!isAdminPage) return;
@@ -622,17 +672,15 @@ export default function App() {
     const state = { individualEntries, relayTeams, draws, results, timetableConfig, timetableRows };
     try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (error) { console.warn('ローカル保存に失敗しました。', error); }
     if (!user || !authToken) return;
-    const timer = window.setTimeout(async () => {
-      try {
-        const response = await fetch(`${API_BASE_URL}/state`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-          body: JSON.stringify(state)
-        });
-        if (!response.ok) console.warn('共有APIへの保存に失敗しました。', response.status);
-      } catch (error) { console.warn('共有APIへの接続に失敗しました。', error); }
+    cancelPendingStateSave();
+    const timer = window.setTimeout(() => {
+      if (pendingStateSaveTimerRef.current === timer) pendingStateSaveTimerRef.current = null;
+      queueMeetStateSave(state, authToken).catch(error => console.warn('共有APIへの保存に失敗しました。', error));
     }, 250);
-    return () => window.clearTimeout(timer);
+    pendingStateSaveTimerRef.current = timer;
+    return () => {
+      if (pendingStateSaveTimerRef.current === timer) cancelPendingStateSave();
+    };
   }, [isStorageHydrated, user, authToken, individualEntries, relayTeams, draws, results, timetableConfig, timetableRows]);
 
   useEffect(() => {
@@ -764,23 +812,21 @@ export default function App() {
 
   // --- 登録機能 ---
 
-  const rebuildDrawsFor = (conditions, individuals, relays) => {
-    if (!conditions.length) return;
-    setDraws(prev => {
-      const next = { ...prev };
-      conditions.forEach(({ department, gender, event }) => {
-        const isRelay = isRelayEvent(event);
-        const targetEntries = isRelay
-          ? relays.filter(t => t.department === department && t.gender === gender && t.event === event)
-            .map(t => ({ id: t.id, bib: t.teamId, name: t.teamName, affiliation: t.affiliation, department: t.department, gender: t.gender, event: t.event, pb: t.pb, order: t.order, roster: t.roster, isRelay: true }))
-          : individuals.filter(e => e.department === department && e.gender === gender && e.event === event)
-            .map(e => ({ id: e.id, bib: e.bib, name: e.name, affiliation: e.affiliation, department: e.department, gender: e.gender, event: e.event, pb: e.pb, isRelay: false }));
-        const key = `${department}-${gender}-${event}`;
-        if (targetEntries.length) next[key] = buildGeneratedRaces(targetEntries, event, lanesPerRace);
-        else delete next[key];
-      });
-      return next;
+  const buildDrawsFor = (conditions, individuals, relays, previousDraws = draws) => {
+    if (!conditions.length) return previousDraws;
+    const next = { ...previousDraws };
+    conditions.forEach(({ department, gender, event }) => {
+      const isRelay = isRelayEvent(event);
+      const targetEntries = isRelay
+        ? relays.filter(t => t.department === department && t.gender === gender && t.event === event)
+          .map(t => ({ id: t.id, bib: t.teamId, name: t.teamName, affiliation: t.affiliation, department: t.department, gender: t.gender, event: t.event, pb: t.pb, order: t.order, roster: t.roster, isRelay: true }))
+        : individuals.filter(e => e.department === department && e.gender === gender && e.event === event)
+          .map(e => ({ id: e.id, bib: e.bib, name: e.name, affiliation: e.affiliation, department: e.department, gender: e.gender, event: e.event, pb: e.pb, isRelay: false }));
+      const key = `${department}-${gender}-${event}`;
+      if (targetEntries.length) next[key] = buildGeneratedRaces(targetEntries, event, lanesPerRace);
+      else delete next[key];
     });
+    return next;
   };
 
   const buildMeetStateAfterEntryDeletion = (entries) => {
@@ -826,12 +872,8 @@ export default function App() {
         timetableConfig,
         timetableRows
       };
-      const response = await fetch(`${API_BASE_URL}/state`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify(nextState)
-      });
-      if (!response.ok) throw new Error(`state_save_failed_${response.status}`);
+      cancelPendingStateSave();
+      await queueMeetStateSave(nextState, authToken);
       try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState)); }
       catch (error) { console.warn('ローカル保存に失敗しました。', error); }
       setIndividualEntries(nextIndividuals);
@@ -848,8 +890,9 @@ export default function App() {
     }
   };
 
-  const handleSaveIndividual = (e) => {
+  const handleSaveIndividual = async (e) => {
     e.preventDefault();
+    if (entrySaveInProgress.current) return;
     const cleaned = { ...newIndividual, name: newIndividual.name.trim(), affiliation: newIndividual.affiliation.trim() };
     if (!cleaned.name || !cleaned.affiliation) return;
     if (!isIndividualEventAllowed(cleaned.department, cleaned.gender, cleaned.event) || !DEPARTMENTS.includes(cleaned.department) || !GENDERS.includes(cleaned.gender)) return;
@@ -858,8 +901,15 @@ export default function App() {
     const nextIndividuals = editingId
       ? individualEntries.map(item => item.id === editingId ? savedEntry : item)
       : [...individualEntries, savedEntry];
+    const previousEntry = editingId ? individualEntries.find(item => item.id === editingId) : null;
+    const conditions = [previousEntry, savedEntry].filter(Boolean)
+      .map(entry => ({ department: entry.department, gender: entry.gender, event: entry.event }))
+      .filter((condition, index, list) => list.findIndex(item => item.department === condition.department && item.gender === condition.gender && item.event === condition.event) === index);
+    const nextDraws = buildDrawsFor(conditions, nextIndividuals, relayTeams, draws);
+    const nextState = { individualEntries: nextIndividuals, relayTeams, draws: nextDraws, results, timetableConfig, timetableRows };
+    if (!await persistEntryStateNow(nextState)) return;
     setIndividualEntries(nextIndividuals);
-    rebuildDrawsFor([{ department: cleaned.department, gender: cleaned.gender, event: cleaned.event }], nextIndividuals, relayTeams);
+    setDraws(nextDraws);
     if (editingId) {
       setEditingId(null);
       setEntryEditModal(null);
@@ -868,8 +918,9 @@ export default function App() {
     setNewIndividual({ bib: '', name: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '100m', pb: '' });
   };
 
-  const handleSaveRelayTeam = (e) => {
+  const handleSaveRelayTeam = async (e) => {
     e.preventDefault();
+    if (entrySaveInProgress.current) return;
     const cleaned = { ...newRelayTeam, teamName: newRelayTeam.teamName.trim(), affiliation: newRelayTeam.affiliation.trim(), order: newRelayTeam.order || { r1: '', r2: '', r3: '', r4: '' } };
     if (!cleaned.teamName || !cleaned.affiliation) return;
     if (!RELAY_EVENTS.includes(cleaned.event) || !DEPARTMENTS.includes(cleaned.department) || !GENDERS.includes(cleaned.gender)) return;
@@ -920,9 +971,18 @@ export default function App() {
     const nextRelays = editingId
       ? relayTeams.map(item => item.id === editingId ? savedTeam : item)
       : [...relayTeams, savedTeam];
+    const conditions = [existingTeam, savedTeam].filter(Boolean)
+      .map(team => ({ department: team.department, gender: team.gender, event: team.event }))
+      .filter((condition, index, list) => list.findIndex(item => item.department === condition.department && item.gender === condition.gender && item.event === condition.event) === index);
+    const nextDraws = buildDrawsFor(conditions, individualEntries, nextRelays, draws);
+    const nextState = { individualEntries, relayTeams: nextRelays, draws: nextDraws, results, timetableConfig, timetableRows };
+    if (!await persistEntryStateNow(nextState)) return;
     setRelayTeams(nextRelays);
-    rebuildDrawsFor([{ department: cleaned.department, gender: cleaned.gender, event: cleaned.event }], individualEntries, nextRelays);
-    if (editingId) setEditingId(null);
+    setDraws(nextDraws);
+    if (editingId) {
+      setEditingId(null);
+      setEntryEditModal(null);
+    }
 
     setNewRelayTeam({ teamId: '', teamName: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '4×100mR', pb: '', roster: createEmptyEkidenRoster() });
   };
@@ -963,7 +1023,7 @@ export default function App() {
     if (!file) return;
     const input = event.target;
     const reader = new FileReader();
-    reader.onload = (loadEvent) => {
+    reader.onload = async (loadEvent) => {
       const text = String(loadEvent.target?.result || '').replace(/^\uFEFF/, '');
       const lines = text.split(/\r\n|\n|\r/).filter(line => line.trim());
       if (lines.length < 2) {
@@ -1017,12 +1077,20 @@ export default function App() {
       });
       const nextIndividuals = newIndividuals.length ? [...individualEntries, ...newIndividuals] : individualEntries;
       const nextRelays = newRelays.length ? [...relayTeams, ...newRelays] : relayTeams;
-      if (newIndividuals.length) setIndividualEntries(nextIndividuals);
-      if (newRelays.length) setRelayTeams(nextRelays);
       const conditions = [...newIndividuals, ...newRelays]
         .map(entry => ({ department: entry.department, gender: entry.gender, event: entry.event }))
         .filter((condition, index, list) => list.findIndex(item => item.department === condition.department && item.gender === condition.gender && item.event === condition.event) === index);
-      rebuildDrawsFor(conditions, nextIndividuals, nextRelays);
+      if (conditions.length) {
+        const nextDraws = buildDrawsFor(conditions, nextIndividuals, nextRelays, draws);
+        const nextState = { individualEntries: nextIndividuals, relayTeams: nextRelays, draws: nextDraws, results, timetableConfig, timetableRows };
+        if (!await persistEntryStateNow(nextState)) {
+          input.value = '';
+          return;
+        }
+        if (newIndividuals.length) setIndividualEntries(nextIndividuals);
+        if (newRelays.length) setRelayTeams(nextRelays);
+        setDraws(nextDraws);
+      }
       const messages = [];
       if (newIndividuals.length) messages.push(`個人選手: ${newIndividuals.length}件`);
       if (newRelays.length) messages.push(`リレーチーム: ${newRelays.length}件`);
@@ -2223,11 +2291,12 @@ export default function App() {
                           )}
                           <button
                             type="submit"
+                            disabled={isEntrySaving}
                             className={`px-6 py-2 text-white font-bold text-xs rounded-lg transition-colors shadow-sm ${
                               editingId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'
                             }`}
                           >
-                            {editingId ? '変更を保存' : '個人選手を追加'}
+                            {isEntrySaving ? 'サーバー保存中…' : editingId ? '変更を保存' : '個人選手を追加'}
                           </button>
                         </div>
                       </form>
@@ -2383,11 +2452,12 @@ export default function App() {
                           )}
                           <button
                             type="submit"
+                            disabled={isEntrySaving}
                             className={`px-6 py-2 text-white font-bold text-xs rounded-lg transition-colors shadow-sm ${
                               editingId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-indigo-600 hover:bg-indigo-700'
                             }`}
                           >
-                            {editingId ? '変更を保存' : 'リレーチームを追加'}
+                            {isEntrySaving ? 'サーバー保存中…' : editingId ? '変更を保存' : 'リレーチームを追加'}
                           </button>
                         </div>
                       </form>
@@ -2531,7 +2601,7 @@ export default function App() {
                       </label>
                       <div className="mt-2 flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:col-span-2 sm:flex-row sm:justify-end">
                         <button type="button" onClick={handleCancelEdit} className="min-h-11 rounded-lg bg-slate-100 px-5 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200">キャンセル</button>
-                        <button type="submit" className="min-h-11 rounded-lg bg-amber-600 px-5 py-2 text-sm font-bold text-white hover:bg-amber-700">変更を保存</button>
+                        <button type="submit" disabled={isEntrySaving} className="min-h-11 rounded-lg bg-amber-600 px-5 py-2 text-sm font-bold text-white hover:bg-amber-700">{isEntrySaving ? 'サーバー保存中…' : '変更を保存'}</button>
                       </div>
                     </form>
                   ) : (
@@ -2566,7 +2636,7 @@ export default function App() {
                       {isEkidenEvent(newRelayTeam.event) && <><p className="text-[11px] text-amber-800 sm:col-span-2">駅伝チームの部門・性別・種目は登録後に変更できません。参加者の変更は当日オーダー設定から行ってください。</p><EkidenRosterFields value={newRelayTeam.roster} onChange={(key, value) => setNewRelayTeam(prev => ({ ...prev, roster: { ...(prev.roster || createEmptyEkidenRoster()), [key]: value } }))} /></>}
                       <div className="mt-2 flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:col-span-2 sm:flex-row sm:justify-end">
                         <button type="button" onClick={handleCancelEdit} className="min-h-11 rounded-lg bg-slate-100 px-5 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200">キャンセル</button>
-                        <button type="submit" className="min-h-11 rounded-lg bg-amber-600 px-5 py-2 text-sm font-bold text-white hover:bg-amber-700">変更を保存</button>
+                        <button type="submit" disabled={isEntrySaving} className="min-h-11 rounded-lg bg-amber-600 px-5 py-2 text-sm font-bold text-white hover:bg-amber-700">{isEntrySaving ? 'サーバー保存中…' : '変更を保存'}</button>
                       </div>
                     </form>
                   )}
