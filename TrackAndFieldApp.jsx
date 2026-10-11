@@ -238,7 +238,9 @@ const getPageContext = () => {
   return { publicCode, isAdminPage, isPublicLivePage, isForbiddenPage: !isAdminPage && !isPublicLivePage };
 };
 const ACTIVE_TAB_KEY = 'track-app-active-tab';
+const ACTIVE_ENTRY_SUBTAB_KEY = 'track-app-active-entry-subtab';
 const ADMIN_TAB_IDS = new Set(['entries', 'draws', 'results', 'live', 'timetable', 'certificates', 'userSettings']);
+const ENTRY_SUBTAB_IDS = new Set(['individual', 'relay']);
 const readStoredActiveTab = () => {
   if (typeof window === 'undefined' || !getPageContext().isAdminPage) return 'live';
   try {
@@ -247,6 +249,16 @@ const readStoredActiveTab = () => {
   } catch (error) {
     console.warn('選択中のメニューを読み込めませんでした。', error);
     return 'live';
+  }
+};
+const readStoredEntrySubTab = () => {
+  if (typeof window === 'undefined' || !getPageContext().isAdminPage) return 'individual';
+  try {
+    const savedSubTab = window.localStorage.getItem(ACTIVE_ENTRY_SUBTAB_KEY);
+    return ENTRY_SUBTAB_IDS.has(savedSubTab) ? savedSubTab : 'individual';
+  } catch (error) {
+    console.warn('選択中のエントリー画面を読み込めませんでした。', error);
+    return 'individual';
   }
 };
 // 部門名の正規化処理
@@ -426,7 +438,7 @@ const buildGeneratedRaces = (targetEntries, event, lanesPerRace) => {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState(readStoredActiveTab);
-  const [entrySubTab, setEntrySubTab] = useState('individual'); // 'individual' | 'relay'
+  const [entrySubTab, setEntrySubTab] = useState(readStoredEntrySubTab); // 'individual' | 'relay'
   // 画面更新（リロード）直後は、保存済みのトークン＋ユーザー情報から
   // ログイン状態を同期的に復元し、ログイン画面へ戻らないようにする
   const [initialSession] = useState(readStoredSession);
@@ -495,6 +507,16 @@ export default function App() {
   // 403（公開URLでも管理URLでもない）場合のみ非表示。ログイン状態の復元中も画面は表示し続ける
   const canRenderApp = !isForbiddenPage;
 
+  const changeEntrySubTab = (subTab) => {
+    const nextSubTab = ENTRY_SUBTAB_IDS.has(subTab) ? subTab : 'individual';
+    try {
+      window.localStorage.setItem(ACTIVE_ENTRY_SUBTAB_KEY, nextSubTab);
+    } catch (error) {
+      console.warn('選択中のエントリー画面を保存できませんでした。', error);
+    }
+    setEntrySubTab(nextSubTab);
+  };
+
   const cancelPendingStateSave = () => {
     if (pendingStateSaveTimerRef.current !== null) {
       window.clearTimeout(pendingStateSaveTimerRef.current);
@@ -549,6 +571,15 @@ export default function App() {
       console.warn('選択中のメニューを保存できませんでした。', error);
     }
   }, [activeTab, isAdminPage]);
+
+  useEffect(() => {
+    if (!isAdminPage) return;
+    try {
+      window.localStorage.setItem(ACTIVE_ENTRY_SUBTAB_KEY, entrySubTab);
+    } catch (error) {
+      console.warn('選択中のエントリー画面を保存できませんでした。', error);
+    }
+  }, [entrySubTab, isAdminPage]);
 
   useEffect(() => {
     document.title = isForbiddenPage
@@ -2167,7 +2198,7 @@ export default function App() {
               <div className="space-y-6">
                 <div className="flex border-b border-slate-200 gap-4 overflow-x-auto overscroll-x-contain whitespace-nowrap" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}>
                   <button
-                    onClick={() => { setEntrySubTab('individual'); handleCancelEdit(); }}
+                    onClick={() => { changeEntrySubTab('individual'); handleCancelEdit(); }}
                     className={`pb-3 text-xs font-bold flex items-center gap-2 border-b-2 transition-colors ${
                       entrySubTab === 'individual'
                         ? 'border-indigo-600 text-indigo-600'
@@ -2177,7 +2208,7 @@ export default function App() {
                     <UserPlus size={16} /> 個人エントリー管理 ({individualEntries.length}件)
                   </button>
                   <button
-                    onClick={() => { setEntrySubTab('relay'); handleCancelEdit(); }}
+                    onClick={() => { changeEntrySubTab('relay'); handleCancelEdit(); }}
                     className={`pb-3 text-xs font-bold flex items-center gap-2 border-b-2 transition-colors ${
                       entrySubTab === 'relay'
                         ? 'border-indigo-600 text-indigo-600'
