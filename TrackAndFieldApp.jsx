@@ -11,7 +11,11 @@ const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VIT
 const DEPARTMENTS = ['一般', '中学', '小学', '壮年'];
 const GENDERS = ['男子', '女子', '混合'];
 const INDIVIDUAL_EVENTS = ['100m', '200m', '800m', '1500m', '3000m', '110mH（ハードル）', '100mH（ハードル）', '走り幅跳び', '走高跳', '砲丸投', 'ジャベリックスロー'];
-const RELAY_EVENTS = ['4×100mR', '4×400mR'];
+const EKIDEN_EVENT = '駅伝（約2km×4区間）';
+const EKIDEN_DEPARTMENTS = ['小学', '中学', '一般'];
+const EKIDEN_ROSTER_KEYS = ['r1', 'r2', 'r3', 'r4', 'reserve1', 'reserve2'];
+const createEmptyEkidenRoster = () => ({ r1: '', r2: '', r3: '', r4: '', reserve1: '', reserve2: '' });
+const RELAY_EVENTS = ['4×100mR', '4×400mR', EKIDEN_EVENT];
 const ALL_EVENTS = [...INDIVIDUAL_EVENTS, ...RELAY_EVENTS];
 const STORAGE_KEY = 'track-and-field-meet-data-v1';
 const AUTH_TOKEN_KEY = 'track-app-auth-token';
@@ -69,6 +73,31 @@ const readStoredMeetState = () => {
     return null;
   }
 };
+
+function EkidenRosterFields({ value, onChange }) {
+  const roster = value || createEmptyEkidenRoster();
+  const starterLabels = ['1走', '2走', '3走', '4走'];
+  return (
+    <div className="md:col-span-7 rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+      <div>
+        <p className="text-sm font-black text-amber-950">駅伝チーム登録選手（4名必須・補欠2名まで）</p>
+        <p className="mt-1 text-[11px] leading-5 text-amber-900">各区間は約2km、全4区間で同じコースです。氏名で複数チーム登録を確認します。大会当日の走者変更は可能ですが、チームの部門は変更できません。</p>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {['r1', 'r2', 'r3', 'r4'].map((key, index) => (
+          <label key={key} className="text-xs font-bold text-slate-700">{starterLabels[index]}・登録選手{index + 1}（必須）
+            <input required aria-label={`駅伝登録選手${index + 1}`} value={roster[key] || ''} onChange={event => onChange(key, event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-normal text-slate-900" />
+          </label>
+        ))}
+        {['reserve1', 'reserve2'].map((key, index) => (
+          <label key={key} className="text-xs font-bold text-slate-700">補欠{index + 1}（任意）
+            <input aria-label={`駅伝補欠${index + 1}`} value={roster[key] || ''} onChange={event => onChange(key, event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-normal text-slate-900" />
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // 認証APIが返すエラーコードを、運営担当者向けの日本語メッセージに変換する
 const AUTH_ERROR_MESSAGES = {
@@ -232,12 +261,25 @@ const normalizeDepartment = (dept) => {
   return DEPARTMENTS.includes(d) ? d : '一般';
 };
 
-const normalizeStoredEntries = (entries) => entries.map(entry => (
-  entry?.department === '高校' ? { ...entry, department: '一般' } : entry
-));
+const normalizeStoredEntries = (entries) => entries.map(entry => {
+  const department = entry?.department === '高校' ? '一般' : entry?.department;
+  if (!isEkidenEvent(entry?.event)) return department === entry?.department ? entry : { ...entry, department };
+  const normalizedDepartment = EKIDEN_DEPARTMENTS.includes(department) ? department : '一般';
+  const gender = entry.gender === '女子' ? '女子' : '男子';
+  const roster = { ...createEmptyEkidenRoster(), ...(entry.roster || {}) };
+  ['r1', 'r2', 'r3', 'r4'].forEach(key => { if (!roster[key] && entry.order?.[key]) roster[key] = entry.order[key]; });
+  return { ...entry, department: normalizedDepartment, gender, roster };
+});
 
 // リレー種目判定
-const isRelayEvent = (ev) => ev ? (ev.includes('R') || ev.includes('リレー')) : false;
+const isEkidenEvent = (event) => event === EKIDEN_EVENT;
+const isRelayEvent = (ev) => ev ? (ev.includes('R') || ev.includes('リレー') || ev.includes('駅伝')) : false;
+const normalizeRosterPersonName = (name) => String(name || '').normalize('NFKC').trim().replace(/[\s　]+/g, '').toLocaleLowerCase('ja');
+const getEkidenTeamMemberNames = (team) => {
+  const rosterNames = EKIDEN_ROSTER_KEYS.map(key => team?.roster?.[key] || (['r1', 'r2', 'r3', 'r4'].includes(key) ? team?.order?.[key] : '') || '');
+  const orderNames = ['r1', 'r2', 'r3', 'r4'].map(key => team?.order?.[key] || '');
+  return [...new Set([...rosterNames, ...orderNames].map(name => String(name).trim()).filter(Boolean))];
+};
 
 const isHurdleEvent = (ev) => ev === '110mH（ハードル）' || ev === '100mH（ハードル）';
 const HURDLE_DEPARTMENTS = ['一般', '中学', '壮年'];
@@ -253,10 +295,11 @@ const getAvailableIndividualEvents = (department, gender) => INDIVIDUAL_EVENTS
 const isFieldEvent = (ev) => ev ? (ev.includes('跳') || ev.includes('投') || ev.includes('ジャンプ') || ev.includes('高') || ev.includes('ジャベリック')) : false;
 
 // タイム決勝（1組限定編成）種目判定 (1500m, 3000m, フィールド種目)
-const isSingleRaceEvent = (ev) => ev === '1500m' || ev === '3000m' || isFieldEvent(ev);
+const isSingleRaceEvent = (ev) => ev === '1500m' || ev === '3000m' || isFieldEvent(ev) || isEkidenEvent(ev);
 
 // 種目・組数を考慮した初期所要時間（分）。生成後は日程表上で個別に変更できます。
 const estimateTimetableDuration = (event, heats, participants, field) => {
+  if (isEkidenEvent(event)) return 45;
   if (field) return Math.max(45, 20 + Number(heats || 1) * 10);
   const perHeat = event === '3000m' ? 12
     : event === '1500m' ? 8
@@ -279,34 +322,41 @@ const parseDrawKey = (key) => {
 const recalculateTimetableRows = (rows, config, anchorKey = null, requestedStart = null) => {
   const next = rows.map(row => ({ ...row }));
   ['トラック', 'フィールド'].forEach(venue => {
-    const indices = next.map((row, index) => row.venue === venue ? index : -1).filter(index => index >= 0);
-    if (!indices.length) return;
-    const anchorIndex = indices.find(index => next[index].key === anchorKey);
-    const getGap = row => Math.max(
-      Number(row.durationMinutes) || 0,
-      venue === 'フィールド' ? Number(config.fieldInterval) : Number(config.trackInterval)
-    );
-    if (anchorIndex === undefined) {
-      let clock = timeToMinutes(venue === 'フィールド' ? config.fieldStart : config.trackStart) ?? (venue === 'フィールド' ? 9 * 60 : 8 * 60 + 45);
-      indices.forEach(index => {
-        next[index].startTime = minutesToTime(clock);
-        clock += getGap(next[index]);
-      });
-    } else {
-      next[anchorIndex].startTime = minutesToTime(requestedStart);
-      const anchorPosition = indices.indexOf(anchorIndex);
-      for (let position = anchorPosition - 1; position >= 0; position -= 1) {
-        const currentIndex = indices[position];
-        const nextIndex = indices[position + 1];
-        next[currentIndex].startTime = minutesToTime(timeToMinutes(next[nextIndex].startTime) - getGap(next[currentIndex]));
-      }
-      for (let position = anchorPosition + 1; position < indices.length; position += 1) {
-        const currentIndex = indices[position];
-        const previousIndex = indices[position - 1];
-        next[currentIndex].startTime = minutesToTime(timeToMinutes(next[previousIndex].startTime) + getGap(next[previousIndex]));
+    const venueIndices = next.map((row, index) => row.venue === venue ? index : -1).filter(index => index >= 0);
+    if (!venueIndices.length) return;
+    const ekidenIndices = venue === 'トラック' ? venueIndices.filter(index => isEkidenEvent(next[index].event)) : [];
+    const scheduleIndices = venueIndices.filter(index => !ekidenIndices.includes(index));
+    const anchorVenueIndex = venueIndices.find(index => next[index].key === anchorKey);
+    const anchorIsEkiden = anchorVenueIndex !== undefined && ekidenIndices.includes(anchorVenueIndex);
+    const anchorIndex = scheduleIndices.find(index => next[index].key === anchorKey);
+    const getGap = row => Math.max(Number(row.durationMinutes) || 0, venue === 'フィールド' ? Number(config.fieldInterval) : Number(config.trackInterval));
+    if (!anchorIsEkiden) {
+      if (anchorIndex === undefined) {
+        let clock = timeToMinutes(venue === 'フィールド' ? config.fieldStart : config.trackStart) ?? (venue === 'フィールド' ? 9 * 60 : 8 * 60 + 45);
+        scheduleIndices.forEach(index => { next[index].startTime = minutesToTime(clock); clock += getGap(next[index]); });
+      } else {
+        next[anchorIndex].startTime = minutesToTime(requestedStart);
+        const anchorPosition = scheduleIndices.indexOf(anchorIndex);
+        for (let position = anchorPosition - 1; position >= 0; position -= 1) {
+          const currentIndex = scheduleIndices[position];
+          const nextIndex = scheduleIndices[position + 1];
+          next[currentIndex].startTime = minutesToTime(timeToMinutes(next[nextIndex].startTime) - getGap(next[currentIndex]));
+        }
+        for (let position = anchorPosition + 1; position < scheduleIndices.length; position += 1) {
+          const currentIndex = scheduleIndices[position];
+          const previousIndex = scheduleIndices[position - 1];
+          next[currentIndex].startTime = minutesToTime(timeToMinutes(next[previousIndex].startTime) + getGap(next[previousIndex]));
+        }
       }
     }
-    indices.forEach(index => {
+    const fixedIndices = [...scheduleIndices, ...ekidenIndices];
+    fixedIndices.forEach(index => {
+      if (ekidenIndices.includes(index)) {
+        const row = next[index];
+        const officialStart = row.department === '小学' ? 9 * 60 : 9 * 60 + 45;
+        const start = anchorIsEkiden && row.key === anchorKey ? requestedStart : officialStart;
+        row.startTime = minutesToTime(start);
+      }
       const start = timeToMinutes(next[index].startTime);
       const callStart = venue === 'フィールド' ? config.fieldCallStart : config.trackCallStart;
       const callComplete = venue === 'フィールド' ? config.fieldCallComplete : config.trackCallComplete;
@@ -428,7 +478,7 @@ export default function App() {
     bib: '', name: '', affiliation: '', department: '一般', gender: '男子', event: '100m', pb: ''
   });
   const [newRelayTeam, setNewRelayTeam] = useState({
-    teamId: '', teamName: '', affiliation: '', department: '一般', gender: '男子', event: '4×100mR', pb: ''
+    teamId: '', teamName: '', affiliation: '', department: '一般', gender: '男子', event: '4×100mR', pb: '', roster: createEmptyEkidenRoster()
   });
 
   // 当日リレーオーダー編集モーダル用 State
@@ -722,7 +772,7 @@ export default function App() {
         const isRelay = isRelayEvent(event);
         const targetEntries = isRelay
           ? relays.filter(t => t.department === department && t.gender === gender && t.event === event)
-            .map(t => ({ id: t.id, bib: t.teamId, name: t.teamName, affiliation: t.affiliation, department: t.department, gender: t.gender, event: t.event, pb: t.pb, order: t.order, isRelay: true }))
+            .map(t => ({ id: t.id, bib: t.teamId, name: t.teamName, affiliation: t.affiliation, department: t.department, gender: t.gender, event: t.event, pb: t.pb, order: t.order, roster: t.roster, isRelay: true }))
           : individuals.filter(e => e.department === department && e.gender === gender && e.event === event)
             .map(e => ({ id: e.id, bib: e.bib, name: e.name, affiliation: e.affiliation, department: e.department, gender: e.gender, event: e.event, pb: e.pb, isRelay: false }));
         const key = `${department}-${gender}-${event}`;
@@ -823,23 +873,58 @@ export default function App() {
     const cleaned = { ...newRelayTeam, teamName: newRelayTeam.teamName.trim(), affiliation: newRelayTeam.affiliation.trim(), order: newRelayTeam.order || { r1: '', r2: '', r3: '', r4: '' } };
     if (!cleaned.teamName || !cleaned.affiliation) return;
     if (!RELAY_EVENTS.includes(cleaned.event) || !DEPARTMENTS.includes(cleaned.department) || !GENDERS.includes(cleaned.gender)) return;
+    const existingTeam = editingId ? relayTeams.find(team => team.id === editingId) : null;
+    if (existingTeam && isEkidenEvent(existingTeam.event) && (cleaned.event !== existingTeam.event || cleaned.department !== existingTeam.department || (cleaned.gender === '混合' ? '男子' : cleaned.gender) !== existingTeam.gender)) {
+      alert('駅伝チームの種目・部門・性別区分は変更できません。参加者の変更は当日オーダー設定から行ってください。');
+      return;
+    }
+
+    if (isEkidenEvent(cleaned.event)) {
+      if (!EKIDEN_DEPARTMENTS.includes(cleaned.department)) {
+        alert('駅伝の部門は「小学」「中学」「一般」から選択してください。');
+        return;
+      }
+      if (cleaned.gender === '混合') cleaned.gender = '男子';
+      if (!['男子', '女子'].includes(cleaned.gender)) return;
+      const roster = Object.fromEntries(EKIDEN_ROSTER_KEYS.map(key => [key, String(cleaned.roster?.[key] || '').trim()]));
+      const starters = ['r1', 'r2', 'r3', 'r4'].map(key => roster[key]);
+      if (starters.some(name => !name)) {
+        alert('駅伝チームは走者4名の登録が必要です。');
+        return;
+      }
+      const submittedNames = EKIDEN_ROSTER_KEYS.map(key => roster[key]).filter(Boolean);
+      const normalizedNames = submittedNames.map(normalizeRosterPersonName);
+      if (new Set(normalizedNames).size !== normalizedNames.length) {
+        alert('同じチーム内で同一人物を複数回登録できません。氏名を確認してください。');
+        return;
+      }
+      const otherTeamNames = relayTeams
+        .filter(team => team.id !== editingId && isEkidenEvent(team.event))
+        .flatMap(getEkidenTeamMemberNames)
+        .map(normalizeRosterPersonName);
+      const duplicateName = submittedNames.find(name => otherTeamNames.includes(normalizeRosterPersonName(name)));
+      if (duplicateName) {
+        alert(`「${duplicateName}」は別の駅伝チームにも登録されています。1人が複数チームに申し込めないため、氏名を確認してください。`);
+        return;
+      }
+      cleaned.roster = roster;
+    }
 
     const savedTeam = {
       ...cleaned,
       id: editingId || createId('relay'),
-      order: editingId ? cleaned.order : { r1: '', r2: '', r3: '', r4: '' }
+      order: editingId ? cleaned.order : (isEkidenEvent(cleaned.event)
+        ? { r1: cleaned.roster.r1, r2: cleaned.roster.r2, r3: cleaned.roster.r3, r4: cleaned.roster.r4 }
+        : { r1: '', r2: '', r3: '', r4: '' })
     };
     const nextRelays = editingId
       ? relayTeams.map(item => item.id === editingId ? savedTeam : item)
       : [...relayTeams, savedTeam];
     setRelayTeams(nextRelays);
     rebuildDrawsFor([{ department: cleaned.department, gender: cleaned.gender, event: cleaned.event }], individualEntries, nextRelays);
-    if (editingId) {
-      setEditingId(null);
-      setEntryEditModal(null);
-    }
+    if (editingId) setEditingId(null);
 
-    setNewRelayTeam({ teamId: '', teamName: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '4×100mR', pb: '' });
+    setNewRelayTeam({ teamId: '', teamName: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '4×100mR', pb: '', roster: createEmptyEkidenRoster() });
   };
 
   const handleStartEditIndividual = (entry) => {
@@ -850,7 +935,9 @@ export default function App() {
 
   const handleStartEditRelay = (team) => {
     setEditingId(team.id);
-    setNewRelayTeam({ ...team });
+    const roster = { ...createEmptyEkidenRoster(), ...(team.roster || {}) };
+    if (isEkidenEvent(team.event)) ['r1', 'r2', 'r3', 'r4'].forEach(key => { if (!roster[key] && team.order?.[key]) roster[key] = team.order[key]; });
+    setNewRelayTeam({ ...team, roster });
     setEntryEditModal('relay');
   };
 
@@ -858,7 +945,7 @@ export default function App() {
     setEditingId(null);
     setEntryEditModal(null);
     setNewIndividual({ bib: '', name: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '100m', pb: '' });
-    setNewRelayTeam({ teamId: '', teamName: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '4×100mR', pb: '' });
+    setNewRelayTeam({ teamId: '', teamName: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '4×100mR', pb: '', roster: createEmptyEkidenRoster() });
   };
 
   useEffect(() => {
@@ -874,7 +961,6 @@ export default function App() {
   const handleCSVImport = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
     const input = event.target;
     const reader = new FileReader();
     reader.onload = (loadEvent) => {
@@ -885,24 +971,50 @@ export default function App() {
         input.value = '';
         return;
       }
-
+      const selectedExportFormat = parseCsvLine(lines[0])[0]?.trim() === '種別';
       const newIndividuals = [];
       const newRelays = [];
+      let invalidEkidenRows = 0;
       lines.slice(1).forEach((line, index) => {
         const cols = parseCsvLine(line);
-        if (cols.length < 6) return;
-        const eventName = cols[5] || '';
-        const department = normalizeDepartment(cols[3]);
-        const gender = GENDERS.includes(cols[4]) ? cols[4] : '男子';
+        const base = selectedExportFormat ? 1 : 0;
+        if (cols.length < (selectedExportFormat ? 8 : 6)) return;
+        const rowType = selectedExportFormat ? String(cols[0] || '').trim() : '';
+        const bibOrTeamId = cols[base] || '';
+        const name = cols[base + 1] || '';
+        const affiliation = cols[base + 2] || '';
+        const department = normalizeDepartment(cols[base + 3]);
+        const inputGender = GENDERS.includes(cols[base + 4]) ? cols[base + 4] : '男子';
+        const eventName = cols[base + 5] || '';
+        const record = cols[base + 6] || '';
+        const memberStart = selectedExportFormat ? 8 : 7;
+        if (!name || !affiliation) return;
         if (isRelayEvent(eventName)) {
-          if (!cols[1] || !cols[2] || !RELAY_EVENTS.includes(eventName)) return;
-          newRelays.push({ id: createId(`relay-${index}`), teamId: cols[0] || '', teamName: cols[1], affiliation: cols[2], department, gender, event: eventName, pb: cols[6] || '', order: { r1: cols[7] || '', r2: cols[8] || '', r3: cols[9] || '', r4: cols[10] || '' } });
-        } else {
-          if (!cols[1] || !cols[2] || !isIndividualEventAllowed(department, gender, eventName)) return;
-          newIndividuals.push({ id: createId(`ind-${index}`), bib: cols[0] || '', name: cols[1], affiliation: cols[2], department, gender, event: eventName, pb: cols[6] || '' });
+          if (!RELAY_EVENTS.includes(eventName) || (selectedExportFormat && rowType === '個人')) return;
+          if (isEkidenEvent(eventName)) {
+            const roster = {
+              r1: cols[memberStart] || '', r2: cols[memberStart + 1] || '', r3: cols[memberStart + 2] || '', r4: cols[memberStart + 3] || '',
+              reserve1: cols[memberStart + 4] || '', reserve2: cols[memberStart + 5] || ''
+            };
+            const rosterNames = EKIDEN_ROSTER_KEYS.map(key => String(roster[key]).trim()).filter(Boolean);
+            const normalizedNames = rosterNames.map(normalizeRosterPersonName);
+            const takenNames = [...relayTeams, ...newRelays].filter(team => isEkidenEvent(team.event)).flatMap(getEkidenTeamMemberNames).map(normalizeRosterPersonName);
+            const validCategory = EKIDEN_DEPARTMENTS.includes(department) && ['男子', '女子', '混合'].includes(inputGender);
+            if (!validCategory || ['r1', 'r2', 'r3', 'r4'].some(key => !String(roster[key]).trim()) || new Set(normalizedNames).size !== normalizedNames.length || normalizedNames.some(person => takenNames.includes(person))) {
+              invalidEkidenRows += 1;
+              return;
+            }
+            const gender = inputGender === '混合' ? '男子' : inputGender;
+            newRelays.push({ id: createId(`relay-${index}`), teamId: bibOrTeamId, teamName: name, affiliation, department, gender, event: eventName, pb: record, roster, order: { r1: roster.r1, r2: roster.r2, r3: roster.r3, r4: roster.r4 } });
+            return;
+          }
+          newRelays.push({ id: createId(`relay-${index}`), teamId: bibOrTeamId, teamName: name, affiliation, department, gender: inputGender, event: eventName, pb: record, order: { r1: cols[memberStart] || '', r2: cols[memberStart + 1] || '', r3: cols[memberStart + 2] || '', r4: cols[memberStart + 3] || '' } });
+          return;
         }
+        if (selectedExportFormat && rowType === 'リレー') return;
+        if (!isIndividualEventAllowed(department, inputGender, eventName)) return;
+        newIndividuals.push({ id: createId(`ind-${index}`), bib: bibOrTeamId, name, affiliation, department, gender: inputGender, event: eventName, pb: record });
       });
-
       const nextIndividuals = newIndividuals.length ? [...individualEntries, ...newIndividuals] : individualEntries;
       const nextRelays = newRelays.length ? [...relayTeams, ...newRelays] : relayTeams;
       if (newIndividuals.length) setIndividualEntries(nextIndividuals);
@@ -914,6 +1026,7 @@ export default function App() {
       const messages = [];
       if (newIndividuals.length) messages.push(`個人選手: ${newIndividuals.length}件`);
       if (newRelays.length) messages.push(`リレーチーム: ${newRelays.length}件`);
+      if (invalidEkidenRows) messages.push(`駅伝の部門・4名必須・同一人物の重複条件により除外: ${invalidEkidenRows}件`);
       alert(messages.length ? `CSVデータを読み込みました:\n${messages.join('\n')}` : '有効なエントリーデータが見つかりませんでした。');
       input.value = '';
     };
@@ -925,7 +1038,12 @@ export default function App() {
     let csvContent = "";
     let fileName = "";
 
-    if (type === 'individual') {
+    if (type === 'ekiden') {
+      csvContent = "チームID,チーム名,所属団体,部門,性別,種目,申込タイム,1走,2走,3走,4走,補欠1,補欠2\n" +
+        `701,草加小学校A,草加小学校,小学,男子,${EKIDEN_EVENT},,青木 一郎,石井 二郎,内田 三郎,遠藤 四郎,大野 五郎,加藤 六郎\n` +
+        `702,草加ランナーズA,草加ランナーズ,一般,混合,${EKIDEN_EVENT},,木村 七郎,斎藤 八郎,清水 九郎,高橋 十郎,中村 一郎,`;
+      fileName = "sample_ekiden_teams.csv";
+    } else if (type === 'individual') {
       csvContent = "ゼッケン,氏名,所属団体,部門,性別,種目,PB\n" +
         "101,陸上 太郎,水戸アスリートクラブ,一般,男子,100m,11.50\n" +
         "102,水戸 史郎,水戸アスリートクラブ,一般,男子,1500m,4:15.00\n" +
@@ -954,14 +1072,14 @@ export default function App() {
     const selectedRelays = relayTeams.filter(team => selectedRelayIds.includes(team.id));
     const selectedEntries = [
       ...selectedIndividuals.map(entry => ({ type: '個人', id: entry.bib, name: entry.name, affiliation: entry.affiliation, department: entry.department, gender: entry.gender, event: entry.event, record: entry.pb, order: {} })),
-      ...selectedRelays.map(team => ({ type: 'リレー', id: team.teamId, name: team.teamName, affiliation: team.affiliation, department: team.department, gender: team.gender, event: team.event, record: team.pb, order: team.order || {} }))
+      ...selectedRelays.map(team => ({ type: 'リレー', id: team.teamId, name: team.teamName, affiliation: team.affiliation, department: team.department, gender: team.gender, event: team.event, record: team.pb, order: isEkidenEvent(team.event) ? (team.roster || {}) : (team.order || {}) }))
     ];
     if (!selectedEntries.length) {
       alert('CSV出力するエントリーをチェックしてください。');
       return;
     }
-    const headers = ['種別', 'ID/ゼッケン', '氏名/チーム名', '所属団体', '部門', '性別', '種目', '記録', '1走', '2走', '3走', '4走'];
-    const rows = selectedEntries.map(entry => [entry.type, entry.id, entry.name, entry.affiliation, entry.department, entry.gender, entry.event, entry.record || '', entry.order.r1 || '', entry.order.r2 || '', entry.order.r3 || '', entry.order.r4 || '']);
+    const headers = ['種別', 'ID/ゼッケン', '氏名/チーム名', '所属団体', '部門', '性別', '種目', '記録', '1走', '2走', '3走', '4走', '補欠1', '補欠2'];
+    const rows = selectedEntries.map(entry => [entry.type, entry.id, entry.name, entry.affiliation, entry.department, entry.gender, entry.event, entry.record || '', entry.order.r1 || '', entry.order.r2 || '', entry.order.r3 || '', entry.order.r4 || '', entry.order.reserve1 || '', entry.order.reserve2 || '']);
     const csvCell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
     const csv = [headers, ...rows].map(row => row.map(csvCell).join(',')).join('\n');
     const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csv], { type: 'text/csv;charset=utf-8;' });
@@ -1037,7 +1155,7 @@ export default function App() {
       const relay = isRelayEvent(condition.event);
       const targetEntries = relay
         ? relayTeams.filter(t => t.department === condition.department && t.gender === condition.gender && t.event === condition.event)
-          .map(t => ({ id: t.id, bib: t.teamId, name: t.teamName, affiliation: t.affiliation, department: t.department, gender: t.gender, event: t.event, pb: t.pb, order: t.order, isRelay: true }))
+          .map(t => ({ id: t.id, bib: t.teamId, name: t.teamName, affiliation: t.affiliation, department: t.department, gender: t.gender, event: t.event, pb: t.pb, order: t.order, roster: t.roster, isRelay: true }))
         : individualEntries.filter(e => e.department === condition.department && e.gender === condition.gender && e.event === condition.event)
           .map(e => ({ id: e.id, bib: e.bib, name: e.name, affiliation: e.affiliation, department: e.department, gender: e.gender, event: e.event, pb: e.pb, isRelay: false }));
       if (!targetEntries.length) return;
@@ -1159,7 +1277,15 @@ export default function App() {
   // リレーオーダーを同一所属・部門・性別の個人エントリーから自動設定
   const handleAutoAssignRelayOrder = () => {
     if (!editingTeamForOrder) return;
-
+    if (isEkidenEvent(editingTeamForOrder.event)) {
+      const starters = ['r1', 'r2', 'r3', 'r4'].map(key => String(editingTeamForOrder.roster?.[key] || '').trim());
+      if (starters.some(name => !name)) {
+        alert('駅伝の登録選手4名を確認してください。');
+        return;
+      }
+      setEditingTeamForOrder(prev => ({ ...prev, order: { ...(prev.order || {}), r1: starters[0], r2: starters[1], r3: starters[2], r4: starters[3] } }));
+      return;
+    }
     const candidates = individualEntries
       .filter(ind => ind.affiliation === editingTeamForOrder.affiliation
         && ind.department === editingTeamForOrder.department
@@ -1189,6 +1315,39 @@ export default function App() {
     }));
   };
 
+  const handleSaveRelayOrder = () => {
+    if (!editingTeamForOrder) return;
+    const team = relayTeams.find(item => item.id === editingTeamForOrder.id);
+    if (!team) return;
+    if (isEkidenEvent(team.event)) {
+      const activeNames = ['r1', 'r2', 'r3', 'r4'].map(key => String(editingTeamForOrder.order?.[key] || '').trim());
+      if (activeNames.some(name => !name)) {
+        alert('駅伝は4区間すべてに走者を設定してください。');
+        return;
+      }
+      const normalized = activeNames.map(normalizeRosterPersonName);
+      if (new Set(normalized).size !== normalized.length) {
+        alert('同一人物を複数区間に設定できません。走者名を確認してください。');
+        return;
+      }
+      const otherNames = relayTeams.filter(item => item.id !== team.id && isEkidenEvent(item.event)).flatMap(getEkidenTeamMemberNames).map(normalizeRosterPersonName);
+      const duplicateName = activeNames.find(name => otherNames.includes(normalizeRosterPersonName(name)));
+      if (duplicateName) {
+        alert(`「${duplicateName}」は別チームにも登録されています。走者名を確認してください。`);
+        return;
+      }
+    }
+    const nextTeam = { ...team, order: { ...(editingTeamForOrder.order || {}) } };
+    setRelayTeams(prev => prev.map(item => item.id === nextTeam.id ? nextTeam : item));
+    const drawKey = `${team.department}-${team.gender}-${team.event}`;
+    setDraws(prev => {
+      const races = prev[drawKey];
+      if (!Array.isArray(races)) return prev;
+      return { ...prev, [drawKey]: races.map(race => ({ ...race, lanes: (race.lanes || []).map(lane => lane.athlete?.id === team.id ? { ...lane, athlete: { ...lane.athlete, order: nextTeam.order } } : lane) })) };
+    });
+    setEditingTeamForOrder(null);
+  };
+
   const handleRandomizeResults = () => {
     const targets = allConditionMode
       ? Object.entries(draws).map(([key, races]) => ({ key, races, event: parseDrawKey(key).event }))
@@ -1203,8 +1362,8 @@ export default function App() {
     const shuffled = (items) => [...items].sort(() => Math.random() - 0.5);
     const randomWind = () => `+${randomBetween(0, 2).toFixed(1)}`;
     const randomTime = (event, rank) => {
-      const base = event === '800m' ? 125 : event === '1500m' ? 250 : event === '3000m' ? 570 : isRelayEvent(event) ? 42 : isHurdleEvent(event) ? 16 : 11;
-      const spread = event === '800m' ? 18 : event === '1500m' ? 35 : event === '3000m' ? 70 : isRelayEvent(event) ? 5 : isHurdleEvent(event) ? 3 : 2.5;
+      const base = isEkidenEvent(event) ? 2100 : event === '800m' ? 125 : event === '1500m' ? 250 : event === '3000m' ? 570 : isRelayEvent(event) ? 42 : isHurdleEvent(event) ? 16 : 11;
+      const spread = isEkidenEvent(event) ? 360 : event === '800m' ? 18 : event === '1500m' ? 35 : event === '3000m' ? 70 : isRelayEvent(event) ? 5 : isHurdleEvent(event) ? 3 : 2.5;
       return (base + randomBetween(0, spread) + rank * 0.01).toFixed(2);
     };
     const generatedResults = {};
@@ -1404,7 +1563,9 @@ export default function App() {
           const relayOrder = relay
             ? ['r1', 'r2', 'r3', 'r4'].map((key, index) => `${index + 1}走：${athlete.order?.[key] || '未設定'}`).join(' ／ ')
             : '';
-          return `<tr><td class="center">${escapeHtml(item.lane ?? '-')}</td><td class="center">${escapeHtml(athlete.bib || athlete.teamId || '-')}</td><td>${escapeHtml(athlete.name || athlete.teamName || '-')}</td><td>${escapeHtml(athlete.affiliation || '-')}</td>${relay ? `<td>${escapeHtml(relayOrder)}</td>` : ''}</tr>`;
+          const reserves = isEkidenEvent(group.event) ? ['reserve1', 'reserve2'].map(key => athlete.roster?.[key]).filter(Boolean) : [];
+          const relayDetails = reserves.length ? `${relayOrder} ／ 補欠：${reserves.join('・')}` : relayOrder;
+          return `<tr><td class="center">${escapeHtml(item.lane ?? '-')}</td><td class="center">${escapeHtml(athlete.bib || athlete.teamId || '-')}</td><td>${escapeHtml(athlete.name || athlete.teamName || '-')}</td><td>${escapeHtml(athlete.affiliation || '-')}</td>${relay ? `<td>${escapeHtml(relayDetails)}</td>` : ''}</tr>`;
         }).join('');
         const columnCount = relay ? 5 : 4;
         return `<div class="race"><h3>第${escapeHtml(race.raceNumber || '-')}組</h3><table class="race-table"><thead><tr><th class="center">${field ? '試技順' : 'レーン／並び'}</th><th class="center">ID／ゼッケン</th><th>${relay ? 'チーム名' : '氏名'}</th><th>所属</th>${relay ? '<th>1走～4走オーダー</th>' : ''}</tr></thead><tbody>${rows || `<tr><td colspan="${columnCount}">出場者なし</td></tr>`}</tbody></table></div>`;
@@ -1426,7 +1587,7 @@ export default function App() {
       const field = isFieldEvent(event);
       const relay = isRelayEvent(event);
       const round = raceList.length === 1
-        ? (isSingleRaceEvent(event) ? 'タイムレース' : '決勝')
+        ? (isSingleRaceEvent(event) && !isEkidenEvent(event) ? 'タイムレース' : '決勝')
         : '予選';
       return {
         key, department, gender, event, field, relay,
@@ -1441,7 +1602,8 @@ export default function App() {
     let fieldClock = timeToMinutes(timetableConfig.fieldStart) ?? 9 * 60;
     const rows = candidates.map((candidate, index) => {
       const isField = candidate.field;
-      const start = isField ? fieldClock : trackClock;
+      const isEkiden = isEkidenEvent(candidate.event);
+      const start = isEkiden ? (candidate.department === '小学' ? 9 * 60 : 9 * 60 + 45) : (isField ? fieldClock : trackClock);
       const callStart = isField ? timetableConfig.fieldCallStart : timetableConfig.trackCallStart;
       const callComplete = isField ? timetableConfig.fieldCallComplete : timetableConfig.trackCallComplete;
       const interval = Math.max(isField ? Number(timetableConfig.fieldInterval) : Number(timetableConfig.trackInterval), Number(candidate.durationMinutes) || 0);
@@ -1452,10 +1614,18 @@ export default function App() {
         callLocation: isField ? candidate.event : '各種目スタート付近'
       };
       if (isField) fieldClock += interval;
+      else if (isEkiden) trackClock = Math.max(trackClock, start + interval);
       else trackClock += interval;
       return row;
     });
     setTimetableRows(rows);
+    if (rows.some(row => isEkidenEvent(row.event))) {
+      setTimetableConfig(prev => ({
+        ...prev,
+        date: prev.date || '2026-11-08',
+        reserveDate: prev.reserveDate || '2026-11-15'
+      }));
+    }
     if (!rows.length) alert('組割り済みの競技がありません。先にエントリー登録と組割りを行ってください。');
   };
 
@@ -2113,7 +2283,8 @@ export default function App() {
                             {editingId ? <Edit3 size={16} className="text-amber-600" /> : <Plus size={16} className="text-indigo-600" />}
                             {editingId ? 'リレーチーム情報の編集' : 'リレーチームエントリー追加'}
                           </h2>
-                          <p className="text-[11px] text-slate-500 mt-0.5">※当日の走者（1〜4走）は一覧の「オーダー設定」から登録できます。</p>
+                          <p className="text-[11px] text-slate-500 mt-0.5">※通常リレーの当日走者（1〜4走）は一覧の「オーダー設定」から登録できます。</p>
+                          <p className="mt-1 text-[11px] text-slate-500">駅伝：2026年11月8日（日）、予備日11月15日。小学生9:00、中学生・一般9:45開始予定。そうか公園内の同一コースを約2km×4区間で走ります。</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <button
@@ -2121,6 +2292,9 @@ export default function App() {
                             className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
                           >
                             <Download size={14} /> サンプルCSV (リレー)
+                          </button>
+                          <button type="button" onClick={() => handleDownloadSampleCSV('ekiden')} className="flex items-center gap-1.5 px-3 py-2 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-xl text-xs font-bold transition-colors">
+                            <Download size={14} /> 駅伝CSV見本
                           </button>
                           <label className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-colors shadow-sm">
                             <Upload size={14} /> CSV一括インポート
@@ -2158,18 +2332,18 @@ export default function App() {
                           onChange={e => setNewRelayTeam({ ...newRelayTeam, department: e.target.value })}
                           className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs"
                         >
-                          {DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
+                          {(isEkidenEvent(newRelayTeam.event) ? EKIDEN_DEPARTMENTS : DEPARTMENTS).map(d => <option key={d} value={d}>{d}</option>)}
                         </select>
                         <select
                           value={newRelayTeam.gender}
                           onChange={e => setNewRelayTeam({ ...newRelayTeam, gender: e.target.value })}
                           className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs"
                         >
-                          {GENDERS.map(g => <option key={g} value={g}>{g}</option>)}
+                          {GENDERS.map(g => <option key={g} value={g}>{isEkidenEvent(newRelayTeam.event) && g === '混合' ? '混合（男子の部）' : g}</option>)}
                         </select>
                         <select
                           value={newRelayTeam.event}
-                          onChange={e => setNewRelayTeam({ ...newRelayTeam, event: e.target.value })}
+                          onChange={e => { const eventName = e.target.value; setNewRelayTeam({ ...newRelayTeam, event: eventName, department: isEkidenEvent(eventName) && !EKIDEN_DEPARTMENTS.includes(newRelayTeam.department) ? '一般' : newRelayTeam.department }); }}
                           className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs font-bold text-indigo-600"
                         >
                           {RELAY_EVENTS.map(ev => <option key={ev} value={ev}>{ev}</option>)}
@@ -2181,6 +2355,9 @@ export default function App() {
                           onChange={e => setNewRelayTeam({ ...newRelayTeam, pb: e.target.value })}
                           className="min-h-11 px-3 py-2 border border-slate-300 rounded-lg text-base md:text-xs font-mono"
                         />
+                        {isEkidenEvent(newRelayTeam.event) && (
+                          <EkidenRosterFields value={newRelayTeam.roster} onChange={(key, value) => setNewRelayTeam(prev => ({ ...prev, roster: { ...(prev.roster || createEmptyEkidenRoster()), [key]: value } }))} />
+                        )}
                         <div className="md:col-span-7 flex justify-end gap-2 pt-2">
                           {editingId && (
                             <button
@@ -2227,7 +2404,7 @@ export default function App() {
                             <th className="p-3 font-bold">部門 / 性別</th>
                             <th className="p-3 font-bold">種目</th>
                             <th className="p-3 font-bold">申込タイム</th>
-                            <th className="p-3 font-bold">当日オーダー (1走〜4走)</th>
+                            <th className="p-3 font-bold">登録選手・当日オーダー</th>
                             <th className="p-3 font-bold text-right">操作</th>
                           </tr>
                         </thead>
@@ -2236,6 +2413,8 @@ export default function App() {
                             .filter(t => t.teamName.includes(searchTerm) || t.affiliation.includes(searchTerm) || t.teamId.includes(searchTerm))
                             .map(team => {
                               const hasOrder = team.order?.r1 || team.order?.r2 || team.order?.r3 || team.order?.r4;
+                              const isEkiden = isEkidenEvent(team.event);
+                              const roster = team.roster || {};
                               return (
                                 <tr key={team.id} className="hover:bg-slate-50/80">
                                   <td className="p-3 text-center"><input type="checkbox" aria-label={`${team.teamName}を選択`} checked={selectedRelayIds.includes(team.id)} onChange={event => setSelectedRelayIds(prev => event.target.checked ? [...prev, team.id] : prev.filter(id => id !== team.id))} /></td>
@@ -2246,9 +2425,15 @@ export default function App() {
                                   <td className="p-3 text-indigo-600 font-bold">{team.event}</td>
                                   <td className="p-3 text-slate-600 font-mono">{team.pb || '-'}</td>
                                   <td className="p-3">
+                                    {isEkiden && (
+                                      <div className="mb-1 rounded border border-amber-100 bg-amber-50/60 p-1.5 text-[10px] text-slate-700">
+                                        登録: {[roster.r1, roster.r2, roster.r3, roster.r4].filter(Boolean).join(' / ') || '未登録'}
+                                        {(roster.reserve1 || roster.reserve2) && <span className="block text-slate-500">補欠: {[roster.reserve1, roster.reserve2].filter(Boolean).join(' / ')}</span>}
+                                      </div>
+                                    )}
                                     {hasOrder ? (
                                       <div className="text-[11px] font-mono text-slate-700 bg-indigo-50/60 p-1.5 rounded border border-indigo-100">
-                                        1:{team.order.r1 || '未'} | 2:{team.order.r2 || '未'} | 3:{team.order.r3 || '未'} | 4:{team.order.r4 || '未'}
+                                        当日: 1:{team.order.r1 || '未'} | 2:{team.order.r2 || '未'} | 3:{team.order.r3 || '未'} | 4:{team.order.r4 || '未'}
                                       </div>
                                     ) : (
                                       <span className="text-[11px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded font-bold border border-amber-200">
@@ -2348,23 +2533,24 @@ export default function App() {
                         <input required value={newRelayTeam.affiliation} onChange={event => setNewRelayTeam({ ...newRelayTeam, affiliation: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-base font-normal text-slate-900" />
                       </label>
                       <label className="text-sm font-bold text-slate-700">部門
-                        <select value={newRelayTeam.department} onChange={event => setNewRelayTeam({ ...newRelayTeam, department: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-normal text-slate-900">
-                          {DEPARTMENTS.map(department => <option key={department} value={department}>{department}</option>)}
+                        <select value={newRelayTeam.department} disabled={Boolean(editingId && isEkidenEvent(newRelayTeam.event))} onChange={event => setNewRelayTeam({ ...newRelayTeam, department: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-normal text-slate-900 disabled:bg-slate-100">
+                          {(isEkidenEvent(newRelayTeam.event) ? EKIDEN_DEPARTMENTS : DEPARTMENTS).map(department => <option key={department} value={department}>{department}</option>)}
                         </select>
                       </label>
                       <label className="text-sm font-bold text-slate-700">性別
-                        <select value={newRelayTeam.gender} onChange={event => setNewRelayTeam({ ...newRelayTeam, gender: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-normal text-slate-900">
-                          {GENDERS.map(gender => <option key={gender} value={gender}>{gender}</option>)}
+                        <select value={newRelayTeam.gender} disabled={Boolean(editingId && isEkidenEvent(newRelayTeam.event))} onChange={event => setNewRelayTeam({ ...newRelayTeam, gender: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-normal text-slate-900 disabled:bg-slate-100">
+                          {GENDERS.map(gender => <option key={gender} value={gender}>{isEkidenEvent(newRelayTeam.event) && gender === '混合' ? '混合（男子の部）' : gender}</option>)}
                         </select>
                       </label>
                       <label className="text-sm font-bold text-slate-700">種目
-                        <select value={newRelayTeam.event} onChange={event => setNewRelayTeam({ ...newRelayTeam, event: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-bold text-indigo-700">
+                        <select value={newRelayTeam.event} disabled={Boolean(editingId && isEkidenEvent(newRelayTeam.event))} onChange={event => { const eventName = event.target.value; setNewRelayTeam({ ...newRelayTeam, event: eventName, department: isEkidenEvent(eventName) && !EKIDEN_DEPARTMENTS.includes(newRelayTeam.department) ? '一般' : newRelayTeam.department }); }} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-base font-bold text-indigo-700 disabled:bg-slate-100">
                           {RELAY_EVENTS.map(eventName => <option key={eventName} value={eventName}>{eventName}</option>)}
                         </select>
                       </label>
                       <label className="text-sm font-bold text-slate-700">申込タイム
                         <input value={newRelayTeam.pb || ''} onChange={event => setNewRelayTeam({ ...newRelayTeam, pb: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-base font-mono font-normal text-slate-900" />
                       </label>
+                      {isEkidenEvent(newRelayTeam.event) && <><p className="text-[11px] text-amber-800 sm:col-span-2">駅伝チームの部門・性別・種目は登録後に変更できません。参加者の変更は当日オーダー設定から行ってください。</p><EkidenRosterFields value={newRelayTeam.roster} onChange={(key, value) => setNewRelayTeam(prev => ({ ...prev, roster: { ...(prev.roster || createEmptyEkidenRoster()), [key]: value } }))} /></>}
                       <div className="mt-2 flex flex-col-reverse gap-2 border-t border-slate-100 pt-4 sm:col-span-2 sm:flex-row sm:justify-end">
                         <button type="button" onClick={handleCancelEdit} className="min-h-11 rounded-lg bg-slate-100 px-5 py-2 text-sm font-bold text-slate-700 hover:bg-slate-200">キャンセル</button>
                         <button type="submit" className="min-h-11 rounded-lg bg-amber-600 px-5 py-2 text-sm font-bold text-white hover:bg-amber-700">変更を保存</button>
@@ -2388,6 +2574,7 @@ export default function App() {
                       <p className="text-xs text-slate-500 mt-0.5">
                         {editingTeamForOrder.teamName}（{editingTeamForOrder.affiliation} / {editingTeamForOrder.department} {editingTeamForOrder.gender}）
                       </p>
+                      {isEkidenEvent(editingTeamForOrder.event) && <p className="mt-1 text-[11px] text-amber-800">当日の走者変更は可能です。チームの部門・性別区分は変更せず、4区間すべてに別々の走者を設定してください。</p>}
                     </div>
                     <button onClick={() => setEditingTeamForOrder(null)} className="text-slate-400 hover:text-slate-600 p-1">
                       <X size={20} />
@@ -2397,7 +2584,7 @@ export default function App() {
                   <div className="flex items-center justify-between gap-3 bg-indigo-50 border border-indigo-100 rounded-xl p-3">
                     <div>
                       <p className="text-xs font-bold text-indigo-900">オーダーを自動設定</p>
-                      <p className="text-[11px] text-indigo-700 mt-0.5">同一所属・部門・性別からゼッケン順に4名を選出します。</p>
+                      <p className="text-[11px] text-indigo-700 mt-0.5">{isEkidenEvent(editingTeamForOrder.event) ? '登録済みの4名を区間順に設定します。' : '同一所属・部門・性別からゼッケン順に4名を選出します。'}</p>
                     </div>
                     <button
                       type="button"
@@ -2438,12 +2625,10 @@ export default function App() {
                     })}
 
                     <datalist id={`candidates-${editingTeamForOrder.id}`}>
-                      {individualEntries
-                        .filter(ind => ind.affiliation === editingTeamForOrder.affiliation)
-                        .map(ind => (
-                          <option key={ind.id} value={ind.name}>
-                            {ind.name} (ゼッケン: {ind.bib || 'なし'}) - {ind.event}
-                          </option>
+                      {isEkidenEvent(editingTeamForOrder.event)
+                        ? getEkidenTeamMemberNames(editingTeamForOrder).map(name => <option key={name} value={name} />)
+                        : individualEntries.filter(ind => ind.affiliation === editingTeamForOrder.affiliation).map(ind => (
+                          <option key={ind.id} value={ind.name}>{ind.name} (ゼッケン: {ind.bib || 'なし'}) - {ind.event}</option>
                         ))}
                     </datalist>
                   </div>
@@ -2456,10 +2641,7 @@ export default function App() {
                       キャンセル
                     </button>
                     <button
-                      onClick={() => {
-                        setRelayTeams(prev => prev.map(t => t.id === editingTeamForOrder.id ? editingTeamForOrder : t));
-                        setEditingTeamForOrder(null);
-                      }}
+                      onClick={handleSaveRelayOrder}
                       className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl shadow-sm"
                     >
                       オーダーを確定
@@ -2539,7 +2721,7 @@ export default function App() {
                   Object.keys(draws).length ? (
                     <div className="space-y-4">{Object.entries(draws).map(([key, races]) => {
                       const meta = parseDrawKey(key);
-                      return <div key={key} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"><div className="bg-slate-800 text-white px-4 py-3 text-sm font-black">{meta.department} {meta.gender} {meta.event}（{races.length}組）</div><div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表は左右にスワイプして全列を確認できます</div><div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}><table className="min-w-[900px] w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">組</th><th className="p-3">レーン/試技順</th><th className="p-3">ID/ゼッケン</th><th className="p-3">氏名/チーム名</th><th className="p-3">所属</th><th className="p-3">申込タイム/PB</th></tr></thead><tbody className="divide-y divide-slate-100">{races.flatMap(race => race.lanes.map(item => <tr key={`${race.raceNumber}-${item.lane}`}><td className="p-3">第{race.raceNumber}組</td><td className="p-3 text-center font-bold text-indigo-600">{item.lane}</td><td className="p-3">{item.athlete.bib || '-'}</td><td className="p-3 font-bold">{item.athlete.name}</td><td className="p-3 text-slate-600">{item.athlete.affiliation}</td><td className="p-3">{item.athlete.pb || '-'}</td></tr>))}</tbody></table></div></div>;
+                      return <div key={key} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"><div className="bg-slate-800 text-white px-4 py-3 text-sm font-black">{meta.department} {meta.gender} {meta.event}（{races.length}組）</div><div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表は左右にスワイプして全列を確認できます</div><div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}><table className="min-w-[900px] w-full text-left text-xs"><thead className="bg-slate-50 text-slate-500"><tr><th className="p-3">組</th><th className="p-3">レーン/試技順</th><th className="p-3">ID/ゼッケン</th><th className="p-3">氏名/チーム名</th><th className="p-3">所属</th><th className="p-3">走者・補欠</th><th className="p-3">申込タイム/PB</th></tr></thead><tbody className="divide-y divide-slate-100">{races.flatMap(race => race.lanes.map(item => <tr key={`${race.raceNumber}-${item.lane}`}><td className="p-3">第{race.raceNumber}組</td><td className="p-3 text-center font-bold text-indigo-600">{item.lane}</td><td className="p-3">{item.athlete.bib || '-'}</td><td className="p-3 font-bold">{item.athlete.name}</td><td className="p-3 text-slate-600">{item.athlete.affiliation}</td><td className="p-3 text-[11px]">{item.athlete.isRelay ? <><div>{['r1','r2','r3','r4'].map((key,index) => `${index + 1}走: ${item.athlete.order?.[key] || '未設定'}`).join(' / ')}</div>{isEkidenEvent(meta.event) && <div className="mt-1 text-amber-800">補欠: {[item.athlete.roster?.reserve1,item.athlete.roster?.reserve2].filter(Boolean).join(' / ') || 'なし'}</div>}</> : '-'}</td><td className="p-3">{item.athlete.pb || '-'}</td></tr>))}</tbody></table></div></div>;
                     })}</div>
                   ) : <div className="bg-white p-12 text-center rounded-2xl border border-slate-200 text-slate-400 text-xs">表示できる組割りデータがありません。</div>
                 ) : draws[currentKey] ? (
@@ -2601,6 +2783,7 @@ export default function App() {
                                         {item.athlete.order?.r4 || '未設定'}
                                       </div>
                                     </div>
+                                    {isEkidenEvent(item.athlete.event) && (item.athlete.roster?.reserve1 || item.athlete.roster?.reserve2) && <div className="mt-1 text-[10px] text-amber-800">補欠: {[item.athlete.roster.reserve1, item.athlete.roster.reserve2].filter(Boolean).join(' / ')}</div>}
                                   </td>
                                 )}
 

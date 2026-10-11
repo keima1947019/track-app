@@ -6,3 +6,4 @@ dist
 .gitignore
 .env
 *.log
+log_track-app/
