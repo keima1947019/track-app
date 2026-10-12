@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { 
   Trophy, Users, LayoutList, FileEdit, Printer, Radio,
   Search, CheckCircle, Shuffle, Upload, LogOut, Lock, Shield, AlertTriangle,
-  Plus, Trash2, Award, Download, UserCheck, Edit3, X, Filter, Flag, UserPlus, CalendarDays, Clock
+  Plus, Trash2, Award, Download, UserCheck, Edit3, X, Filter, Flag, UserPlus, CalendarDays, Clock, Eye, EyeOff
 } from 'lucide-react';
 
 const API_BASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || '/api';
@@ -28,7 +28,6 @@ const TIMETABLE_CSV_HEADERS = [
 ];
 
 // ログインセッション（トークン＋ユーザー情報）をブラウザに保持する。
-// 画面更新（リロード）直後でも保存済み情報からログイン状態を復元できるようにするためのヘルパー。
 const readStoredSession = () => {
   if (typeof window === 'undefined') return { token: '', user: null };
   let token = '';
@@ -99,7 +98,6 @@ function EkidenRosterFields({ value, onChange }) {
   );
 }
 
-// 認証APIが返すエラーコードを、運営担当者向けの日本語メッセージに変換する
 const AUTH_ERROR_MESSAGES = {
   username_already_exists: 'そのログインIDは既に登録されています。',
   email_already_exists: 'そのログインIDは既に登録されています。',
@@ -219,7 +217,6 @@ const escapeHtml = (value) => String(value ?? '')
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#039;');
 
-
 const createPublicCode = () => {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
   const values = new Uint32Array(6);
@@ -237,10 +234,12 @@ const getPageContext = () => {
   const isPublicLivePage = !isAdminPage && Boolean(publicCode);
   return { publicCode, isAdminPage, isPublicLivePage, isForbiddenPage: !isAdminPage && !isPublicLivePage };
 };
+
 const ACTIVE_TAB_KEY = 'track-app-active-tab';
 const ACTIVE_ENTRY_SUBTAB_KEY = 'track-app-active-entry-subtab';
 const ADMIN_TAB_IDS = new Set(['entries', 'draws', 'results', 'live', 'timetable', 'certificates', 'userSettings']);
 const ENTRY_SUBTAB_IDS = new Set(['individual', 'relay']);
+
 const readStoredActiveTab = () => {
   if (typeof window === 'undefined' || !getPageContext().isAdminPage) return 'live';
   try {
@@ -251,6 +250,7 @@ const readStoredActiveTab = () => {
     return 'live';
   }
 };
+
 const readStoredEntrySubTab = () => {
   if (typeof window === 'undefined' || !getPageContext().isAdminPage) return 'individual';
   try {
@@ -261,14 +261,13 @@ const readStoredEntrySubTab = () => {
     return 'individual';
   }
 };
-// 部門名の正規化処理
+
 const normalizeDepartment = (dept) => {
   if (!dept) return '一般';
   let d = dept.replace(/の部$/, '').trim();
   if (d === '中学生') return '中学';
   if (d === '小学生') return '小学';
   if (d === 'マスターズ') return '壮年';
-  // 旧データ／CSVの「高校」は、統合後の「一般」として扱います。
   if (d === '高校') return '一般';
   return DEPARTMENTS.includes(d) ? d : '一般';
 };
@@ -283,10 +282,9 @@ const normalizeStoredEntries = (entries) => entries.map(entry => {
   return { ...entry, department: normalizedDepartment, gender, roster };
 });
 
-// リレー種目判定
 const isEkidenEvent = (event) => event === EKIDEN_EVENT;
 const isRelayEvent = (ev) => ev ? (ev.includes('R') || ev.includes('リレー') || ev.includes('駅伝')) : false;
-const normalizeRosterPersonName = (name) => String(name || '').normalize('NFKC').trim().replace(/[\s　]+/g, '').toLocaleLowerCase('ja');
+const normalizeRosterPersonName = (name) => String(name || '').normalize('NFKC').trim().replace(/[\s ]+/g, '').toLocaleLowerCase('ja');
 const getEkidenTeamMemberNames = (team) => {
   const rosterNames = EKIDEN_ROSTER_KEYS.map(key => team?.roster?.[key] || (['r1', 'r2', 'r3', 'r4'].includes(key) ? team?.order?.[key] : '') || '');
   const orderNames = ['r1', 'r2', 'r3', 'r4'].map(key => team?.order?.[key] || '');
@@ -303,13 +301,30 @@ const isIndividualEventAllowed = (department, gender, event) => {
 const getAvailableIndividualEvents = (department, gender) => INDIVIDUAL_EVENTS
   .filter(event => isIndividualEventAllowed(department, gender, event));
 
-// フィールド種目判定
 const isFieldEvent = (ev) => ev ? (ev.includes('跳') || ev.includes('投') || ev.includes('ジャンプ') || ev.includes('高') || ev.includes('ジャベリック')) : false;
-
-// タイム決勝（1組限定編成）種目判定 (1500m, 3000m, フィールド種目)
+const formatCertificateRecord = (value, event) => {
+  if (value === undefined || value === null || value === '') return '-';
+  const text = String(value).trim();
+  if (isFieldEvent(event) || text.includes('分') || text.includes('秒')) {
+    if (isFieldEvent(event) || text.includes('分')) return text.endsWith('m') || text.endsWith('秒') ? text : `${text}${isFieldEvent(event) ? 'm' : ''}`;
+  }
+  if (isFieldEvent(event)) return `${text}m`;
+  const normalized = text.replace(/秒$/, '').replace(',', '.');
+  const parts = normalized.split(':');
+  const totalSeconds = parts.length === 2
+    ? Number(parts[0]) * 60 + Number(parts[1])
+    : Number(normalized);
+  if (!Number.isFinite(totalSeconds)) return text;
+  if (totalSeconds < 60) return text.endsWith('秒') ? text : `${text}秒`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const remaining = totalSeconds - minutes * 60;
+  const seconds = Math.floor(remaining);
+  const hundredths = Math.round((remaining - seconds) * 100);
+  if (hundredths >= 100) return `${minutes}分${String(seconds + 1).padStart(2, '0')}秒00`;
+  return `${minutes}分${String(seconds).padStart(2, '0')}秒${String(hundredths).padStart(2, '0')}`;
+};
 const isSingleRaceEvent = (ev) => ev === '1500m' || ev === '3000m' || isFieldEvent(ev) || isEkidenEvent(ev);
 
-// 種目・組数を考慮した初期所要時間（分）。生成後は日程表上で個別に変更できます。
 const estimateTimetableDuration = (event, heats, participants, field) => {
   if (isEkidenEvent(event)) return 45;
   if (field) return Math.max(45, 20 + Number(heats || 1) * 10);
@@ -379,21 +394,6 @@ const recalculateTimetableRows = (rows, config, anchorKey = null, requestedStart
   return next.map((row, index) => ({ ...row, order: index + 1 }));
 };
 
-// JWTパース
-const parseJwt = (token) => {
-  try {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    const jsonPayload = decodeURIComponent(
-      atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
-    );
-    return JSON.parse(jsonPayload);
-  } catch (e) {
-    return null;
-  }
-};
-
-// 陸上標準のレーン配置 (Center-Out Seeding)
 const getSeedingLanes = (athleteCount, totalLanes) => {
   let laneOrder = [];
   if (totalLanes === 8) {
@@ -438,9 +438,7 @@ const buildGeneratedRaces = (targetEntries, event, lanesPerRace) => {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState(readStoredActiveTab);
-  const [entrySubTab, setEntrySubTab] = useState(readStoredEntrySubTab); // 'individual' | 'relay'
-  // 画面更新（リロード）直後は、保存済みのトークン＋ユーザー情報から
-  // ログイン状態を同期的に復元し、ログイン画面へ戻らないようにする
+  const [entrySubTab, setEntrySubTab] = useState(readStoredEntrySubTab);
   const [initialSession] = useState(readStoredSession);
   const [user, setUser] = useState(initialSession.user);
   const [authToken, setAuthToken] = useState(initialSession.token);
@@ -467,6 +465,80 @@ export default function App() {
   const [selectedCertificate, setSelectedCertificate] = useState(null);
   const [certificateContent, setCertificateContent] = useState(null);
 
+  // 賞状プレビュー用 ドラッグ＆ドロップ用 State & Ref
+  const [certOffsets, setCertOffsets] = useState({});
+  const [draggingCertKey, setDraggingCertKey] = useState(null);
+
+  // 賞状の各プレースホルダー要素の表示/非表示（カスタムオプション）State
+  const [certVisibility, setCertVisibility] = useState({
+    title: true,
+    name: true,
+    affiliation: true,
+    relayOrder: true,
+    body: true,
+    bib: true,
+    department: true,
+    event: true,
+    rank: true,
+    time: true,
+    date: true,
+    issuer: true
+  });
+  const [certFontSizes, setCertFontSizes] = useState({
+    title: 28, name: 18, affiliation: 14, relayOrder: 12, body: 14,
+    bib: 12, department: 12, event: 12, rank: 12, time: 12, date: 12, issuer: 12
+  });
+  const [certificatePaperSize, setCertificatePaperSize] = useState({ width: 210, height: 297 });
+  const [certificateGridSize, setCertificateGridSize] = useState(10);
+
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const offsetsRef = useRef(certOffsets);
+  offsetsRef.current = certOffsets;
+
+  useEffect(() => {
+    if (!draggingCertKey) return;
+    const onPointerMove = (e) => {
+      setCertOffsets(prev => ({
+        ...prev,
+        [draggingCertKey]: {
+          x: e.clientX - dragStartRef.current.x,
+          y: e.clientY - dragStartRef.current.y
+        }
+      }));
+    };
+    const onPointerUp = () => setDraggingCertKey(null);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+    };
+  }, [draggingCertKey]);
+
+  useEffect(() => {
+    const onCertificateEditorMessage = (event) => {
+      if (event.origin !== window.location.origin || event.data?.type !== 'certificate-editor-save') return;
+      if (event.data.content) setCertificateContent(prev => ({ ...(prev || {}), ...event.data.content }));
+      if (event.data.visibility) setCertVisibility(prev => ({ ...prev, ...event.data.visibility }));
+      if (event.data.offsets) setCertOffsets(prev => ({ ...prev, ...event.data.offsets }));
+    };
+    window.addEventListener('message', onCertificateEditorMessage);
+    return () => window.removeEventListener('message', onCertificateEditorMessage);
+  }, []);
+
+  const handleCertMouseDown = (key, e) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    setDraggingCertKey(key);
+    const currentOffset = offsetsRef.current[key] || { x: 0, y: 0 };
+    dragStartRef.current = {
+      x: e.clientX - currentOffset.x,
+      y: e.clientY - currentOffset.y
+    };
+  };
+
   // 選択・フィルター State
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDepartment, setSelectedDepartment] = useState('');
@@ -487,7 +559,7 @@ export default function App() {
 
   // エントリー追加・編集 State
   const [editingId, setEditingId] = useState(null);
-  const [entryEditModal, setEntryEditModal] = useState(null); // 'individual' | 'relay' | null
+  const [entryEditModal, setEntryEditModal] = useState(null);
   const [selectedIndividualIds, setSelectedIndividualIds] = useState([]);
   const [selectedRelayIds, setSelectedRelayIds] = useState([]);
   const [newIndividual, setNewIndividual] = useState({
@@ -497,14 +569,12 @@ export default function App() {
     teamId: '', teamName: '', affiliation: '', department: '一般', gender: '男子', event: '4×100mR', pb: '', roster: createEmptyEkidenRoster()
   });
 
-  // 当日リレーオーダー編集モーダル用 State
   const [editingTeamForOrder, setEditingTeamForOrder] = useState(null);
   const [isStorageHydrated, setIsStorageHydrated] = useState(false);
   const [publicCode, setPublicCode] = useState(() => {
     return getPageContext().publicCode || createPublicCode();
   });
   const { isAdminPage, isPublicLivePage, isForbiddenPage } = getPageContext();
-  // 403（公開URLでも管理URLでもない）場合のみ非表示。ログイン状態の復元中も画面は表示し続ける
   const canRenderApp = !isForbiddenPage;
 
   const changeEntrySubTab = (subTab) => {
@@ -616,7 +686,6 @@ export default function App() {
           return;
         }
         if (response.status === 401 || response.status === 403) {
-          // トークンがサーバー側で無効になった場合だけログイン状態を解除する
           persistSession('', null);
           setUser(null);
           setAuthToken('');
@@ -627,7 +696,6 @@ export default function App() {
         throw new Error(`session_check_failed_${response.status}`);
       } catch (error) {
         if (cancelled) return;
-        // 一時的な通信障害では確立済みのログイン状態を消去せず、自動的に再試行します。
         attempt += 1;
         if (attempt <= 3) {
           retryTimer = window.setTimeout(validateSession, 1200 * attempt);
@@ -641,7 +709,6 @@ export default function App() {
     return () => { cancelled = true; if (retryTimer) window.clearTimeout(retryTimer); };
   }, [authToken]);
 
-  // ブラウザ内に大会データを保存し、リロード後も復元する
   useEffect(() => {
     let cancelled = false;
     const loadState = async () => {
@@ -658,12 +725,10 @@ export default function App() {
           || Object.keys(state?.timetableConfig || {}).length > 0
           || (state?.timetableRows?.length || 0) > 0
         );
-        // DB初期化直後だけ、既存ブラウザのlocalStorageを初回移行元として利用します。
         if (!hasData(parsed)) {
           if (hasData(localState)) parsed = localState;
         } else if (!(Array.isArray(parsed.timetableRows) && parsed.timetableRows.length)
           && Array.isArray(localState?.timetableRows) && localState.timetableRows.length) {
-          // API未対応時に作った予定表や、保存完了前に更新された予定表を復元します。
           parsed = { ...parsed, timetableRows: localState.timetableRows, timetableConfig: localState.timetableConfig || parsed.timetableConfig };
         } else if (!parsed.timetableConfig && localState?.timetableConfig) {
           parsed = { ...parsed, timetableConfig: localState.timetableConfig };
@@ -760,7 +825,6 @@ export default function App() {
     setActiveTab('live');
   };
 
-  // 401/403（セッション失効）時の共通処理。保存済みセッションを破棄して再ログインを促す
   const handleSessionExpired = (message = 'ログインの有効期限が切れました。もう一度ログインしてください。') => {
     persistSession('', null);
     setUser(null);
@@ -840,8 +904,6 @@ export default function App() {
       setAdminUsersMessage('通信エラーのため、ユーザーを削除できませんでした。');
     }
   };
-
-  // --- 登録機能 ---
 
   const buildDrawsFor = (conditions, individuals, relays, previousDraws = draws) => {
     if (!conditions.length) return previousDraws;
@@ -945,7 +1007,6 @@ export default function App() {
       setEditingId(null);
       setEntryEditModal(null);
     }
-
     setNewIndividual({ bib: '', name: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '100m', pb: '' });
   };
 
@@ -1014,7 +1075,6 @@ export default function App() {
       setEditingId(null);
       setEntryEditModal(null);
     }
-
     setNewRelayTeam({ teamId: '', teamName: '', affiliation: '', department: selectedDepartment || '一般', gender: selectedGender || '男子', event: '4×100mR', pb: '', roster: createEmptyEkidenRoster() });
   };
 
@@ -1048,7 +1108,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', closeOnEscape);
   }, [entryEditModal]);
 
-  // CSV インポート（引用符・カンマ・改行コードに対応）
   const handleCSVImport = (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -1136,7 +1195,6 @@ export default function App() {
   const handleDownloadSampleCSV = (type) => {
     let csvContent = "";
     let fileName = "";
-
     if (type === 'ekiden') {
       csvContent = "チームID,チーム名,所属団体,部門,性別,種目,申込タイム,1走,2走,3走,4走,補欠1,補欠2\n" +
         `701,草加小学校A,草加小学校,小学,男子,${EKIDEN_EVENT},,青木 一郎,石井 二郎,内田 三郎,遠藤 四郎,大野 五郎,加藤 六郎\n` +
@@ -1249,7 +1307,6 @@ export default function App() {
     Array.isArray(raceResults) && raceResults.some(result => hasActiveResultEntry(raceKey, result))
   );
 
-  // 2. 自動組割り編成 (1500m/3000m/フィールド種目は1組のみに固定)
   const generateDraws = () => {
     const effectiveLanes = Number.isInteger(lanesPerRace) && lanesPerRace >= 4 ? lanesPerRace : 6;
     const conditions = allConditionMode
@@ -1278,13 +1335,10 @@ export default function App() {
     alert(allConditionMode ? `${generatedCount}種目の組割りを一括生成しました。` : '組割りを生成しました。');
   };
 
-  // 3-A. トラック種目: 着順順入力ハンドラー（レーン番号を入力すると選手情報を自動補完）
   const handleTrackResultChange = (raceKey, rankIndex, field, value, raceLanes) => {
     setResults(prev => {
       const currentRaceResults = prev[raceKey] || [];
       let updated = [...currentRaceResults];
-
-      // 着順位置の配列要素を確保
       while (updated.length <= rankIndex) {
         updated.push({
           rank: updated.length + 1,
@@ -1295,12 +1349,10 @@ export default function App() {
           status: 'OK'
         });
       }
-
       let item = { ...updated[rankIndex] };
       item[field] = value;
-      item.rank = rankIndex + 1; // 1着, 2着...
+      item.rank = rankIndex + 1;
 
-      // レーン番号が入力されたら該当の選手IDを自動紐付け
       if (field === 'lane') {
         const laneValue = String(value).trim();
         const matchedLane = raceLanes.find(l => String(l.lane) === laneValue);
@@ -1308,18 +1360,15 @@ export default function App() {
         item.lane = alreadyUsed ? '' : laneValue;
         item.athleteId = matchedLane && !alreadyUsed ? matchedLane.athlete.id : '';
       }
-
       updated[rankIndex] = item;
       return { ...prev, [raceKey]: updated };
     });
   };
 
-  // 3-B. フィールド種目: 5回試技入力ハンドラー（自動最高記録計算）
   const handleFieldAttemptChange = (raceKey, athleteId, attemptIndex, value) => {
     setResults(prev => {
       const currentRaceResults = prev[raceKey] || [];
       const existingIndex = currentRaceResults.findIndex(r => r.athleteId === athleteId);
-
       let updated = [...currentRaceResults];
       let item = existingIndex >= 0 
         ? { ...updated[existingIndex] } 
@@ -1329,7 +1378,6 @@ export default function App() {
       newAttempts[attemptIndex] = String(value).trim();
       item.attempts = newAttempts;
 
-      // 5回の試技の中から最高記録（数値としての最大値）を自動判定
       const validNumbers = newAttempts
         .map(v => parseNumericRecord(v))
         .filter(n => !isNaN(n));
@@ -1346,7 +1394,6 @@ export default function App() {
         updated.push(item);
       }
 
-      // ランキング更新
       const validResults = updated.filter(r => r.time && !isNaN(parseFloat(r.time)) && r.status === 'OK');
       validResults.sort((a, b) => parseFloat(b.time) - parseFloat(a.time));
 
@@ -1363,30 +1410,25 @@ export default function App() {
     });
   };
 
-  // フィールド種目の状態・風速等ハンドラー
   const handleFieldGeneralChange = (raceKey, athleteId, field, value) => {
     setResults(prev => {
       const currentRaceResults = prev[raceKey] || [];
       const existingIndex = currentRaceResults.findIndex(r => r.athleteId === athleteId);
-
       let updated = [...currentRaceResults];
       let item = existingIndex >= 0 
         ? { ...updated[existingIndex] } 
         : { athleteId, time: '', status: 'OK', rank: '-', wind: '+0.0', attempts: ['', '', '', '', ''] };
 
       item[field] = value;
-
       if (existingIndex >= 0) {
         updated[existingIndex] = item;
       } else {
         updated.push(item);
       }
-
       return { ...prev, [raceKey]: updated };
     });
   };
 
-  // リレーオーダーを同一所属・部門・性別の個人エントリーから自動設定
   const handleAutoAssignRelayOrder = () => {
     if (!editingTeamForOrder) return;
     if (isEkidenEvent(editingTeamForOrder.event)) {
@@ -1613,6 +1655,7 @@ export default function App() {
   const handlePrint = () => {
     window.print();
   };
+
   const openPdfPrintWindow = (title, content, orientation = 'landscape') => {
     const popup = window.open('', '_blank', 'width=1200,height=850');
     if (!popup) {
@@ -1641,7 +1684,7 @@ export default function App() {
       if (!rows.length) return '';
       return `<section class="event"><h2>${escapeHtml(venue)}競技</h2><table class="race-table"><thead><tr><th class="center">順序</th><th class="center">開始時間</th><th class="center">所要時間</th><th class="center">招集開始</th><th class="center">招集完了</th><th>競技名</th><th class="center">ラウンド</th><th class="center">組数</th><th class="center">参加人数</th><th>招集場所</th></tr></thead><tbody>${rows.map(row => `<tr><td class="center">${escapeHtml(row.order)}</td><td class="center"><strong>${escapeHtml(row.startTime)}</strong></td><td class="center">${escapeHtml(row.durationMinutes)}分</td><td class="center">${escapeHtml(row.callStartTime)}</td><td class="center">${escapeHtml(row.callCompleteTime)}</td><td>${escapeHtml(row.title)}</td><td class="center">${escapeHtml(row.round)}</td><td class="center">${escapeHtml(row.heats)}</td><td class="center">${escapeHtml(row.participants)}</td><td>${escapeHtml(row.callLocation)}</td></tr>`).join('')}</tbody></table></section>`;
     }).join('');
-    const content = `<p class="meta">開催日：${escapeHtml(timetableConfig.date || '未設定')}　／　予備日：${escapeHtml(timetableConfig.reserveDate || '未設定')}</p><div class="notice"><strong>招集時間について</strong><br>トラック競技は競技開始時間の${escapeHtml(timetableConfig.trackCallComplete)}分前、フィールド競技は競技開始時間の${escapeHtml(timetableConfig.fieldCallComplete)}分前が招集完了時間です。</div>${sections}`;
+    const content = `<p class="meta">開催日：${escapeHtml(timetableConfig.date || '未設定')} ／ 予備日：${escapeHtml(timetableConfig.reserveDate || '未設定')}</p><div class="notice"><strong>招集時間について</strong><br>トラック競技は競技開始時間の${escapeHtml(timetableConfig.trackCallComplete)}分前、フィールド競技は競技開始時間の${escapeHtml(timetableConfig.fieldCallComplete)}分前が招集完了時間です。</div>${sections}`;
     openPdfPrintWindow('競技日程表・タイムテーブル', content);
   };
 
@@ -1910,26 +1953,7 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  const openCertificatePopup = (content, target) => {
-    if (!content) return;
-    const popup = window.open('', 'certificate-preview-window', 'width=900,height=900,resizable=yes,scrollbars=yes');
-    if (!popup) {
-      alert('ポップアップがブロックされました。ブラウザのポップアップを許可してください。');
-      return;
-    }
-    const fieldSuffix = isFieldEvent(content.event) ? 'm' : '';
-    const order = target?.isRelay
-      ? `<div class="order">走者: 1走 ${escapeHtml(target.order?.r1 || '-')} / 2走 ${escapeHtml(target.order?.r2 || '-')} / 3走 ${escapeHtml(target.order?.r3 || '-')} / 4走 ${escapeHtml(target.order?.r4 || '-')}</div>`
-      : '';
-    popup.document.open();
-    popup.document.write(`<!doctype html><html lang="ja"><head><meta charset="UTF-8"><title>${escapeHtml(content.title || '賞状')}</title><style>
-      *{box-sizing:border-box}body{margin:0;background:#f1f5f9;color:#0f172a;font-family:Arial,'Noto Sans JP',sans-serif;padding:32px}.toolbar{text-align:right;margin:0 auto 16px;max-width:760px}.toolbar button{background:#059669;color:#fff;border:0;border-radius:8px;padding:10px 18px;font-weight:bold;cursor:pointer}.certificate{background:#fff;border:8px solid rgba(217,119,6,.3);max-width:760px;margin:0 auto;padding:72px 64px;text-align:center;box-shadow:0 12px 30px rgba(15,23,42,.15)}h1{display:inline-block;font-size:32px;letter-spacing:.35em;border-bottom:2px solid #0f172a;padding-bottom:8px;margin:0 0 36px}.recipient{font-size:20px;font-weight:900;margin:0 0 6px}.meta{color:#64748b;font-size:13px}.order{display:inline-block;background:#f8fafc;border-top:1px solid #cbd5e1;border-bottom:1px solid #cbd5e1;padding:10px 16px;margin:18px 0;font-family:monospace;font-size:12px}.body{white-space:pre-line;color:#475569;font-size:14px;line-height:2;margin:28px 0}.record{display:inline-block;background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:16px 24px;text-align:left;font-family:monospace;font-size:13px;line-height:1.9}.footer{color:#64748b;font-size:13px;margin-top:32px}.issuer{font-weight:bold;color:#1e293b;margin-top:6px}@media print{body{padding:0;background:#fff}.toolbar{display:none}.certificate{border-color:#92400e;box-shadow:none;max-width:none;min-height:100vh;margin:0}}
-    </style></head><body><div class="toolbar"><button onclick="window.print()">賞状を印刷する</button></div><main class="certificate"><h1>${escapeHtml(content.title || '賞 状')}</h1><p class="recipient">${escapeHtml(content.name)} 殿</p><p class="meta">（${escapeHtml(content.affiliation)} / ${escapeHtml(content.department)}）</p>${order}<p class="body">${escapeHtml(content.body)}</p><div class="record"><div><b>ID / ゼッケン:</b> No. ${escapeHtml(target?.bib || '-')}</div><div><b>部門:</b> ${escapeHtml(content.department || '-')}</div><div><b>種目:</b> ${escapeHtml(content.gender)} ${escapeHtml(content.event)}</div><div><b>順位:</b> 第 ${escapeHtml(content.rank)} 位</div><div><b>記録:</b> ${escapeHtml(content.time)} ${fieldSuffix}</div></div><div class="footer"><div>${escapeHtml(content.date)}</div><div class="issuer">${escapeHtml(content.issuer)}</div></div></main></body></html>`);
-    popup.document.close();
-    popup.focus();
-  };
-
-  const handleCertificatePreview = (target, raceKey, result, dept, gender, ev) => {
+  const handleCertificateEdit = (target, raceKey, result, dept, gender, ev) => {
     if (!target || !result?.time) return;
     const nextContent = {
       title: '賞 状',
@@ -1946,9 +1970,9 @@ export default function App() {
     };
     setSelectedCertificate({ target, raceKey, result, dept, gender, ev });
     setCertificateContent(nextContent);
-    openCertificatePopup(nextContent, target);
     window.setTimeout(() => {
-      document.getElementById('certificate-preview')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setCertOffsets({});
+      document.getElementById('certificate-layout-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }, 0);
   };
 
@@ -2000,7 +2024,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
-      {/* ヘッダー */}
       <header className="bg-slate-900 text-white shadow-md print:hidden">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -2099,16 +2122,11 @@ export default function App() {
               <div className="mx-auto w-16 h-16 rounded-2xl bg-indigo-100 flex items-center justify-center"><Lock className="text-indigo-600" size={32} /></div>
               <h2 className="mt-5 text-center text-2xl font-black text-slate-900">管理者ログイン</h2>
               <p className="mt-3 text-center text-sm leading-6 text-slate-600">大会運営機能を利用するには、登録済みの管理者アカウントでログインしてください。</p>
-              <div className="mt-5 rounded-xl bg-indigo-50 border border-indigo-100 p-4 text-xs leading-5 text-indigo-900">
-                <p className="font-bold">ログイン画面の使い方</p>
-                <ol className="list-decimal list-inside mt-1 space-y-0.5"><li>管理者から発行されたログインIDを入力</li><li>対応するパスワードを入力</li><li>「ログイン」ボタンを押す</li></ol>
-              </div>
               <form onSubmit={handleLogin} className="mt-7 space-y-5">
                 <label className="block text-sm font-bold text-slate-700">ユーザー名（ログインID）<input id="admin-login-id" value={loginId} onChange={event => setLoginId(event.target.value)} placeholder="例：official" autoComplete="username" required className="mt-2 w-full px-4 py-3 rounded-xl bg-white border-2 border-slate-300 text-base text-slate-900 placeholder:text-slate-400 shadow-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100" /></label>
                 <label className="block text-sm font-bold text-slate-700">パスワード<input id="admin-login-password" value={loginPassword} onChange={event => setLoginPassword(event.target.value)} type="password" placeholder="パスワードを入力" autoComplete="current-password" required className="mt-2 w-full px-4 py-3 rounded-xl bg-white border-2 border-slate-300 text-base text-slate-900 placeholder:text-slate-400 shadow-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100" /></label>
                 <button type="submit" className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-base font-black shadow-md transition-colors">ログイン</button>
               </form>
-              <p className="mt-5 text-center text-xs text-slate-500">パスワードが分からない場合は、大会システム管理者に確認してください。</p>
             </div>
           </div>
         ) : currentTabObj?.protected && !user ? (
@@ -2153,8 +2171,6 @@ export default function App() {
                     <button type="button" onClick={handlePrintTimetable} disabled={!timetableRows.length} className="min-h-11 flex items-center gap-2 px-4 py-2.5 bg-slate-700 hover:bg-slate-800 disabled:opacity-40 text-white rounded-lg text-sm font-bold"><Printer size={16} />PDF出力</button>
                     <button type="button" onClick={handleExportTimetableCsv} disabled={!timetableRows.length} className="min-h-11 flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-sm font-bold"><Download size={16} />CSV出力</button>
                   </div>
-                  <p className="mt-2 text-[11px] text-slate-500">CSV取込は現在のタイムテーブルを置き換えます。出力したCSV、またはテンプレートを編集して取り込んでください。</p>
-                  <p className="mt-1 text-[11px] text-slate-500">PDF出力後に表示される印刷画面で「PDFに保存」を選択してください。</p>
                 </div>
                 <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm" id="timetable-preview">
                   <div className="text-center mb-5"><h1 className="text-xl font-black text-slate-900">競技日程表</h1><p className="text-sm font-bold text-slate-700">{timetableConfig.date || '開催日未設定'}<span className="ml-8 text-xs font-normal text-slate-500">予備日：{timetableConfig.reserveDate || '未設定'}</span></p></div>
@@ -2193,7 +2209,6 @@ export default function App() {
                 </div>
               </div>
             )}
-            {/* 1. エントリー管理 */}
             {activeTab === 'entries' && (
               <div className="space-y-6">
                 <div className="flex border-b border-slate-200 gap-4 overflow-x-auto overscroll-x-contain whitespace-nowrap" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}>
@@ -2227,7 +2242,6 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* 個人エントリー管理 */}
                 {entrySubTab === 'individual' && (
                   <div className="space-y-6">
                     <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
@@ -2386,7 +2400,6 @@ export default function App() {
                   </div>
                 )}
 
-                {/* リレーチームエントリー管理 */}
                 {entrySubTab === 'relay' && (
                   <div className="space-y-6">
                     <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
@@ -2583,7 +2596,7 @@ export default function App() {
                 onMouseDown={event => { if (event.target === event.currentTarget) handleCancelEdit(); }}
               >
                 <section
-                  className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl sm:p-6"
+                  className="max-h-[90vh] w-full max-w-[95vw] overflow-x-auto overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl sm:p-6"
                   role="dialog"
                   aria-modal="true"
                   aria-labelledby="entry-edit-dialog-title"
@@ -2636,7 +2649,7 @@ export default function App() {
                       </div>
                     </form>
                   ) : (
-                    <form onSubmit={handleSaveRelayTeam} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <form onSubmit={handleSaveRelayTeam} className="min-w-[760px] grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <label className="text-sm font-bold text-slate-700">チームID／ゼッケン
                         <input value={newRelayTeam.teamId} onChange={event => setNewRelayTeam({ ...newRelayTeam, teamId: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2 text-base font-normal text-slate-900" />
                       </label>
@@ -2675,7 +2688,6 @@ export default function App() {
               </div>
             )}
 
-            {/* 当日リレーオーダー設定モーダル */}
             {editingTeamForOrder && (
               <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" role="presentation" onMouseDown={e => { if (e.target === e.currentTarget) setEditingTeamForOrder(null); }}>
                 <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4" role="dialog" aria-modal="true" aria-labelledby="relay-order-title">
@@ -2765,7 +2777,6 @@ export default function App() {
               </div>
             )}
 
-            {/* 2. プログラム編成・組割り */}
             {activeTab === 'draws' && (
               <div className="space-y-6">
                 <div className="bg-white p-3 sm:p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-4 items-center justify-between">
@@ -2829,7 +2840,7 @@ export default function App() {
                     <Printer size={14} /> プログラムPDF出力
                   </button>
                 </div>
-                <p className="-mt-4 text-[11px] text-slate-500 print:hidden">PDF出力は表示中の編成をタイムテーブル順に並べ、申込タイム／PBを除いて出力します。出力後、印刷画面で「PDFに保存」を選択してください。</p>
+                <p className="-mt-4 text-[11px] text-slate-500 print:hidden">PDF出力は表示中の編成をタイムテーブル順に並べ、申込タイム／PB"_を除いて出力します。出力後、印刷画面で「PDFに保存」を選択してください。</p>
 
                 {allConditionMode ? (
                   Object.keys(draws).length ? (
@@ -2846,15 +2857,6 @@ export default function App() {
                           <span className="text-sm font-black tracking-wide">
                             {selectedDepartment} {selectedGender} {selectedEvent} - 第 {race.raceNumber} 組
                           </span>
-                          {isSingleRaceEvent(selectedEvent) ? (
-                            <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2.5 py-1 rounded-md text-[11px] font-bold">
-                              ※ タイム決勝のため1組のみ編成
-                            </span>
-                          ) : (
-                            <span className="bg-slate-700 px-2.5 py-1 rounded-md text-[10px] text-slate-300">
-                              {lanesPerRace}レーン編成（中央シード配置）
-                            </span>
-                          )}
                         </div>
                         <div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表は左右にスワイプして全列を確認できます</div><div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}><table className="min-w-[820px] w-full text-left text-xs">
                           <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
@@ -2876,7 +2878,6 @@ export default function App() {
                                 <td className="p-3 text-center font-mono text-slate-500">{item.athlete.bib || '-'}</td>
                                 <td className="p-3 font-bold text-slate-800">{item.athlete.name}</td>
                                 <td className="p-3 text-slate-600">{item.athlete.affiliation}</td>
-
                                 {isRelayEvent(selectedEvent) && (
                                   <td className="p-3">
                                     <div className="grid grid-cols-2 md:grid-cols-4 gap-1 text-[11px] font-mono">
@@ -2900,7 +2901,6 @@ export default function App() {
                                     {isEkidenEvent(item.athlete.event) && (item.athlete.roster?.reserve1 || item.athlete.roster?.reserve2) && <div className="mt-1 text-[10px] text-amber-800">補欠: {[item.athlete.roster.reserve1, item.athlete.roster.reserve2].filter(Boolean).join(' / ')}</div>}
                                   </td>
                                 )}
-
                                 <td className="p-3 text-slate-500 font-mono">{item.athlete.pb || '-'}</td>
                               </tr>
                             ))}
@@ -2917,7 +2917,6 @@ export default function App() {
               </div>
             )}
 
-            {/* 3. 競技結果入力 (トラック種目: 着順順にレーン番号自動照会入力 / フィールド種目: 5回試技記録入力) */}
             {activeTab === 'results' && (
               <div className="space-y-6">
                 <div className="bg-white p-3 sm:p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-3 items-center">
@@ -2954,7 +2953,6 @@ export default function App() {
                     type="button"
                     onClick={handleRandomizeResults}
                     className="w-full sm:w-auto min-h-11 flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-colors shadow-sm"
-                    title={allConditionMode ? '全競技にランダムなテスト結果を入力' : '選択中の全組にランダムなテスト結果を入力'}
                   >
                     <Shuffle size={14} /> {allConditionMode ? '全競技にランダム入力' : 'テスト結果をランダム入力'}
                   </button>
@@ -3053,14 +3051,8 @@ export default function App() {
                             <CheckCircle size={14} className="text-emerald-400" />
                             {selectedDepartment} {selectedGender} {selectedEvent} - 第 {race.raceNumber} 組 (結果入力)
                           </span>
-                          {!isField && (
-                            <span className="text-[11px] text-amber-300 font-normal">
-                              ※ 着順順にレーン番号を入力してください（ゼッケン・氏名が自動反映されます）
-                            </span>
-                          )}
                         </div>
 
-                        {/* トラック種目: 着順順に入力するテーブル */}
                         {!isField ? (
                           <>
                             <div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表を左右にスワイプすると全項目を確認・入力できます</div>
@@ -3157,7 +3149,6 @@ export default function App() {
                             </div>
                           </>
                         ) : (
-                          /* フィールド種目: 試技順・5回試技記録入力テーブル */
                           <>
                             <div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表を左右にスワイプすると全項目を確認・入力できます</div>
                             <div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}>
@@ -3244,57 +3235,9 @@ export default function App() {
                     先に「プログラム編成・組割り」タブで選択条件の組割りを作成してください。
                   </div>
                 )}
-
-                <section className="bg-white rounded-2xl border border-amber-200 shadow-sm overflow-hidden">
-                  <div className="bg-amber-50 px-4 py-3 border-b border-amber-100 flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <h3 className="text-sm font-black text-amber-900">タイム決勝・全組総合結果</h3>
-                      <p className="text-[11px] text-amber-700 mt-0.5">組に関係なく、入力済みの記録を全組で比較した順位です。</p>
-                    </div>
-                    <span className="text-[11px] font-bold text-amber-800 bg-white px-2 py-1 rounded border border-amber-200">
-                      {isFieldEvent(selectedEvent) ? '最高記録の大きい順' : '記録の速い順'}
-                    </span>
-                  </div>
-                  {overallFinalResults.length > 0 ? (
-                    <div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}>
-                      <table className="min-w-[820px] w-full text-left text-xs">
-                        <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
-                          <tr>
-                            <th className="p-3 text-center w-16 font-bold">総合順位</th>
-                            <th className="p-3 text-center w-20 font-bold">組</th>
-                            <th className="p-3 text-center w-20 font-bold">ID/ゼッケン</th>
-                            <th className="p-3 font-bold">{isRelayEvent(selectedEvent) ? 'チーム名' : '氏名'}</th>
-                            <th className="p-3 font-bold">所属</th>
-                            <th className="p-3 font-bold">{isFieldEvent(selectedEvent) ? '最高記録' : '記録'}</th>
-                            <th className="p-3 font-bold">風速</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {overallFinalResults.map(result => (
-                            <tr key={`${result.raceNumber}-${result.athleteId}`} className={result.overallRank === 1 ? 'bg-amber-50/60 font-bold' : ''}>
-                              <td className="p-3 text-center font-black text-amber-600">{result.overallRank}位</td>
-                              <td className="p-3 text-center text-slate-500">{result.raceNumber}組</td>
-                              <td className="p-3 text-center font-mono text-slate-600">{result.athlete.bib || '-'}</td>
-                              <td className="p-3 font-bold text-slate-800">
-                                <div>{result.athlete.name}</div>
-                                {result.athlete.isRelay && <div className="text-[10px] text-indigo-600 font-normal">走者: {[result.athlete.order?.r1, result.athlete.order?.r2, result.athlete.order?.r3, result.athlete.order?.r4].filter(Boolean).join(' / ') || '未設定'}</div>}
-                              </td>
-                              <td className="p-3 text-slate-600">{result.athlete.affiliation}</td>
-                              <td className="p-3 font-mono font-black text-indigo-700">{result.time}{isFieldEvent(selectedEvent) ? 'm' : ''}</td>
-                              <td className="p-3 text-slate-500 font-mono">{result.wind || '-'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div className="p-8 text-center text-xs text-slate-400">結果を入力すると、全組のタイム決勝順位が表示されます。</div>
-                  )}
-                </section>
               </div>
             )}
 
-            {/* 4. 速報・リアルタイム表示 */}
             {activeTab === 'live' && (
               <div className="space-y-6">
                 <div className="bg-indigo-900 text-white p-5 rounded-2xl shadow-sm flex items-center justify-between">
@@ -3397,7 +3340,7 @@ export default function App() {
             {/* 5. 記録証・賞状発行 */}
             {activeTab === 'certificates' && (
               <div className="space-y-6">
-                <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm print:hidden">
+                <div id="certificate-target-list" className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm print:hidden">
                   <h2 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
                     <Award size={18} className="text-indigo-600" /> 賞状・記録証の発行対象選択
                   </h2>
@@ -3414,15 +3357,15 @@ export default function App() {
                             <div>
                               <span className="font-mono text-indigo-600 font-bold mr-2">#{target.bib || '-'}</span>
                               <span className="font-bold text-slate-800 mr-2">{target.name}</span>
-                              <span className="text-slate-500">{dept} {gender} {ev} ({r.rank}位 - {r.time}{isFieldEvent(ev) ? 'm' : ''})</span>
+                              <span className="text-slate-500">{dept} {gender} {ev} ({r.rank}位 - {formatCertificateRecord(r.time, ev)})</span>
                             </div>
                             <button
                               type="button"
-                              onClick={() => handleCertificatePreview(target, raceKey, r, dept, gender, ev)}
-                              aria-label={`${target.name}の賞状プレビューを表示`}
+                              onClick={() => handleCertificateEdit(target, raceKey, r, dept, gender, ev)}
+                              aria-label={`${target.name}の賞状を修正`}
                               className="w-full sm:w-auto min-h-11 px-3 py-1.5 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 transition-colors"
                             >
-                              賞状プレビュー表示
+                              修正
                             </button>
                           </div>
                         );
@@ -3433,55 +3376,136 @@ export default function App() {
 
                 {selectedCertificate && (
                   <div id="certificate-preview" className="space-y-4" aria-live="polite">
-                    {certificateContent && (
-                      <div className="bg-white p-5 rounded-2xl border border-indigo-200 shadow-sm print:hidden">
-                        <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
-                          <Edit3 size={16} className="text-indigo-600" /> 印刷内容を編集
+                    {/* 任意のプレースホルダーを削除・非表示にするカスタムオプションパネル */}
+                    <div className="bg-white p-5 rounded-2xl border border-indigo-200 shadow-sm print:hidden space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                          <Eye size={16} className="text-indigo-600" /> 表示項目のカスタマイズ（プレースホルダーの表示/非表示）
                         </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {[
-                            ['title', '賞状タイトル'],
-                            ['name', '宛名'],
-                            ['affiliation', '所属'],
-                            ['department', '部門'],
-                            ['gender', '性別'],
-                            ['event', '種目'],
-                            ['rank', '順位'],
-                            ['time', '記録'],
-                            ['date', '発行日'],
-                            ['issuer', '発行者']
-                          ].map(([field, label]) => (
-                            <label key={field} className="text-xs font-bold text-slate-600">
-                              {label}
-                              <input
-                                type="text"
-                                value={certificateContent[field] || ''}
-                                onChange={e => setCertificateContent(prev => ({ ...prev, [field]: e.target.value }))}
-                                className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-xs font-normal text-slate-800"
+                        <div className="space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => setCertVisibility({ title: true, name: true, affiliation: true, relayOrder: true, body: true, bib: true, department: true, event: true, rank: true, time: true, date: true, issuer: true })}
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-lg"
+                          >
+                            すべて表示
+                          </button>
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-500">チェックを外すと、賞状プレビューや印刷時に該当するプレースホルダー項目が自動的に非表示（削除）されます。</p>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2 pt-2">
+                        {[
+                          ['title', 'タイトル'],
+                          ['name', '名前 (宛名)'],
+                          ['affiliation', '所属団体'],
+                          ['relayOrder', 'リレー走者'],
+                          ['body', '本文'],
+                          ['bib', 'ID / ゼッケン'],
+                          ['department', '部門'],
+                          ['event', '種目'],
+                          ['rank', '順位'],
+                          ['time', '記録'],
+                          ['date', '発行日'],
+                          ['issuer', '発行者']
+                        ].map(([key, label]) => (
+                          <label key={key} className="flex items-center gap-2 text-xs font-bold text-slate-700 bg-slate-50 p-2 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-100">
+                            <input
+                              type="checkbox"
+                              checked={certVisibility[key]}
+                              onChange={e => setCertVisibility(prev => ({ ...prev, [key]: e.target.checked }))}
+                              className="rounded text-indigo-600 focus:ring-indigo-500"
+                            />
+                            {label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {certificateContent && (
+                      <div className="space-y-4 print:hidden">
+                        <div className="bg-white p-5 rounded-2xl border border-indigo-200 shadow-sm">
+                          <h3 className="text-sm font-bold text-slate-800 mb-1 flex items-center gap-2">
+                            <Edit3 size={16} className="text-indigo-600" /> 賞状共通設定（既定値）
+                          </h3>
+                          <p className="text-xs text-slate-500 mb-3">賞状タイトル・発行日・発行者・本文は、この賞状の共通項目として個別情報とは別に修正できます。</p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {[
+                              ['title', '賞状タイトル'],
+                              ['date', '発行日'],
+                              ['issuer', '発行者']
+                            ].map(([field, label]) => (
+                              <label key={field} className="text-xs font-bold text-slate-600">
+                                {label}
+                                <input
+                                  type="text"
+                                  value={certificateContent[field] || ''}
+                                  onChange={e => setCertificateContent(prev => ({ ...prev, [field]: e.target.value }))}
+                                  className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-xs font-normal text-slate-800"
+                                />
+                              </label>
+                            ))}
+                            <label className="text-xs font-bold text-slate-600 md:col-span-2">
+                              本文
+                              <textarea
+                                rows={3}
+                                value={certificateContent.body || ''}
+                                onChange={e => setCertificateContent(prev => ({ ...prev, body: e.target.value }))}
+                                className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-xs font-normal text-slate-800 leading-relaxed"
                               />
                             </label>
-                          ))}
-                          <label className="text-xs font-bold text-slate-600 md:col-span-2">
-                            本文
-                            <textarea
-                              rows={3}
-                              value={certificateContent.body || ''}
-                              onChange={e => setCertificateContent(prev => ({ ...prev, body: e.target.value }))}
-                              className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-xs font-normal text-slate-800 leading-relaxed"
-                            />
-                          </label>
+                          </div>
                         </div>
-                        <p className="text-[11px] text-slate-500 mt-3">編集内容はこのプレビューと印刷結果に反映されます。</p>
+                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                          <h3 className="text-sm font-bold text-slate-800 mb-3">対象者ごとの情報</h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {[
+                              ['name', '宛名'],
+                              ['affiliation', '所属'],
+                              ['department', '部門'],
+                              ['gender', '性別'],
+                              ['event', '種目'],
+                              ['rank', '順位'],
+                              ['time', '記録']
+                            ].map(([field, label]) => (
+                              <label key={field} className="text-xs font-bold text-slate-600">
+                                {label}
+                                <input
+                                  type="text"
+                                  value={certificateContent[field] || ''}
+                                  onChange={e => setCertificateContent(prev => ({ ...prev, [field]: e.target.value }))}
+                                  className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-xs font-normal text-slate-800"
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                          <h3 className="text-sm font-bold text-slate-800 mb-1">プレースホルダー文字サイズ</h3>
+                          <p className="text-xs text-slate-500 mb-3">各項目の文字サイズをpx単位で個別に変更できます。</p>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                            {[
+                              ['title', '賞状タイトル'], ['name', '宛名'], ['affiliation', '所属'], ['relayOrder', 'リレー走者'],
+                              ['body', '本文'], ['bib', 'No.'], ['department', '部門'], ['event', '種目'],
+                              ['rank', '順位'], ['time', '記録'], ['date', '発行日'], ['issuer', '発行者']
+                            ].map(([key, label]) => (
+                              <label key={key} className="text-xs font-bold text-slate-600">
+                                {label}（px）
+                                <input
+                                  type="number"
+                                  min="8"
+                                  max="100"
+                                  step="1"
+                                  value={certFontSizes[key]}
+                                  onChange={e => setCertFontSizes(prev => ({ ...prev, [key]: Math.min(100, Math.max(8, Number(e.target.value) || 8)) }))}
+                                  className="mt-1 w-full p-2 border border-slate-300 rounded-lg text-xs font-normal text-slate-800"
+                                />
+                              </label>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     )}
                     <div className="flex justify-end gap-3 print:hidden">
-                      <button
-                        type="button"
-                        onClick={() => openCertificatePopup(certificateContent, selectedCertificate.target)}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 text-white font-bold rounded-xl text-xs hover:bg-indigo-700 transition-colors shadow-sm"
-                      >
-                        <Printer size={16} /> 別ウィンドウで表示
-                      </button>
                       <button
                         type="button"
                         onClick={handlePrint}
@@ -3489,36 +3513,214 @@ export default function App() {
                       >
                         <Printer size={16} /> 賞状を印刷する
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => setCertOffsets({})}
+                        className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs transition-colors shadow-sm"
+                      >
+                        位置をリセット
+                      </button>
                     </div>
 
-                    <div className="bg-white p-12 rounded-2xl border-8 border-amber-600/30 shadow-xl max-w-2xl mx-auto text-center space-y-6 print:border-amber-800 print:shadow-none print:m-0 print:p-8">
-                      <h1 className="text-2xl font-black tracking-widest text-slate-900 border-b-2 border-slate-800 pb-2 inline-block">
-                        {certificateContent?.title || '賞 状'}
-                      </h1>
-                      <div className="text-sm font-bold text-slate-700 leading-relaxed">
-                        <p className="text-base text-slate-900 font-black mb-1">{certificateContent?.name || selectedCertificate.target.name} 殿</p>
-                        <p className="text-xs text-slate-500">（{certificateContent?.affiliation || selectedCertificate.target.affiliation} / {certificateContent?.department || selectedCertificate.dept}）</p>
-                        
-                        {selectedCertificate.target.isRelay && (
-                          <div className="text-xs text-slate-600 mt-3 font-mono border-t border-b border-slate-200 py-2 inline-block px-4 bg-slate-50/50">
+                    <p className="text-center text-[11px] text-slate-500 print:hidden">※ 賞状内の各項目をマウスでドラッグ＆ドロップして位置を微調整できます。任意の項目は上のカスタム設定から非表示にできます。</p>
+
+                    <div id="certificate-layout-editor" className="scroll-mt-6">
+                      <h3 className="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2 print:hidden">
+                        <Edit3 size={16} className="text-indigo-600" /> 賞状レイアウト修正
+                      </h3>
+                    <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm print:hidden mb-4">
+                      <div className="flex flex-wrap items-end gap-4">
+                        <label className="text-xs font-bold text-slate-700">
+                          用紙の横幅（mm）
+                          <input
+                            type="number"
+                            min="50"
+                            max="1000"
+                            step="1"
+                            value={certificatePaperSize.width}
+                            onChange={e => setCertificatePaperSize(prev => ({ ...prev, width: Math.max(50, Number(e.target.value) || 50) }))}
+                            className="mt-1 w-28 px-3 py-2 border border-slate-300 rounded-lg text-sm font-normal text-slate-800"
+                          />
+                        </label>
+                        <label className="text-xs font-bold text-slate-700">
+                          用紙の縦幅（mm）
+                          <input
+                            type="number"
+                            min="50"
+                            max="1000"
+                            step="1"
+                            value={certificatePaperSize.height}
+                            onChange={e => setCertificatePaperSize(prev => ({ ...prev, height: Math.max(50, Number(e.target.value) || 50) }))}
+                            className="mt-1 w-28 px-3 py-2 border border-slate-300 rounded-lg text-sm font-normal text-slate-800"
+                          />
+                        </label>
+                        <label className="text-xs font-bold text-slate-700">
+                          方眼の間隔（px）
+                          <input
+                            type="number"
+                            min="4"
+                            max="100"
+                            step="1"
+                            value={certificateGridSize}
+                            onChange={e => setCertificateGridSize(Math.min(100, Math.max(4, Number(e.target.value) || 4)))}
+                            className="mt-1 w-28 px-3 py-2 border border-slate-300 rounded-lg text-sm font-normal text-slate-800"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setCertificatePaperSize({ width: 210, height: 297 })}
+                          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold"
+                        >
+                          A4縦に戻す
+                        </button>
+                      </div>
+                      <p className="mt-3 text-xs text-slate-500">用紙サイズはmm単位で指定できます。A4縦は210×297mm、A4横は297×210mmです。方眼の点線はレイアウト編集時の目安で、印刷には表示されません。</p>
+                    </div>
+                    <div
+                      className="relative bg-white p-12 rounded-2xl border border-slate-200 shadow-sm mx-auto text-center space-y-6 print:border-0 print:shadow-none print:m-0 print:p-8"
+                      style={{ width: `${certificatePaperSize.width}mm`, minHeight: `${certificatePaperSize.height}mm`, maxWidth: '100%', boxSizing: 'border-box' }}
+                    >
+                      <div
+                        aria-hidden="true"
+                        className="absolute inset-0 pointer-events-none print:hidden"
+                        style={{ backgroundImage: 'radial-gradient(circle, rgba(100, 116, 139, 0.38) 1px, transparent 1.5px)', backgroundSize: `${certificateGridSize}px ${certificateGridSize}px` }}
+                      />
+                      {certVisibility.title && (
+                        <div>
+                          <h1
+                            onPointerDown={e => handleCertMouseDown('title', e)}
+                            style={{ transform: `translate(${certOffsets.title?.x || 0}px, ${certOffsets.title?.y || 0}px)`, fontSize: `${certFontSizes.title}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
+                            className="text-2xl font-black tracking-widest text-slate-900 border-b-2 border-slate-800 pb-2 inline-block"
+                          >
+                            {certificateContent?.title || '賞 状'}
+                          </h1>
+                        </div>
+                      )}
+
+                      {certVisibility.name && (
+                        <div>
+                          <div
+                            onPointerDown={e => handleCertMouseDown('name', e)}
+                            style={{ transform: `translate(${certOffsets.name?.x || 0}px, ${certOffsets.name?.y || 0}px)`, fontSize: `${certFontSizes.name}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
+                            className="text-base text-slate-900 font-black inline-block"
+                          >
+                            {certificateContent?.name || selectedCertificate.target.name} 殿
+                          </div>
+                        </div>
+                      )}
+
+                      {certVisibility.affiliation && (
+                        <div>
+                          <div
+                            onPointerDown={e => handleCertMouseDown('affiliation', e)}
+                            style={{ transform: `translate(${certOffsets.affiliation?.x || 0}px, ${certOffsets.affiliation?.y || 0}px)`, fontSize: `${certFontSizes.affiliation}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
+                            className="text-xs text-slate-500 inline-block"
+                          >
+                            {certificateContent?.affiliation || selectedCertificate.target.affiliation}
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedCertificate.target.isRelay && certVisibility.relayOrder && (
+                        <div>
+                          <div
+                            onPointerDown={e => handleCertMouseDown('relayOrder', e)}
+                            style={{ transform: `translate(${certOffsets.relayOrder?.x || 0}px, ${certOffsets.relayOrder?.y || 0}px)`, fontSize: `${certFontSizes.relayOrder}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
+                            className="text-xs text-slate-600 mt-1 font-mono border-t border-b border-slate-200 py-1.5 inline-block px-4 bg-slate-50/50"
+                          >
                             走者: 1走 {selectedCertificate.target.order?.r1 || '-'} / 2走 {selectedCertificate.target.order?.r2 || '-'} / 3走 {selectedCertificate.target.order?.r3 || '-'} / 4走 {selectedCertificate.target.order?.r4 || '-'}
+                          </div>
+                        </div>
+                      )}
+
+                      {certVisibility.body && (
+                        <div>
+                          <p
+                            onPointerDown={e => handleCertMouseDown('body', e)}
+                            style={{ transform: `translate(${certOffsets.body?.x || 0}px, ${certOffsets.body?.y || 0}px)`, fontSize: `${certFontSizes.body}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
+                            className="text-xs text-slate-600 leading-relaxed whitespace-pre-line inline-block"
+                          >
+                            {certificateContent?.body || 'あなたは第35回市民陸上競技大会において\n下記の通り優秀な成績を収められましたのでこれを賞します。'}
+                          </p>
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap justify-center gap-2 text-xs font-mono">
+                        {certVisibility.bib && (
+                          <div
+                            onPointerDown={e => handleCertMouseDown('bib', e)}
+                            style={{ transform: `translate(${certOffsets.bib?.x || 0}px, ${certOffsets.bib?.y || 0}px)`, fontSize: `${certFontSizes.bib}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
+                            className="bg-slate-50 px-3 py-1.5 rounded border border-slate-200 inline-block text-left"
+                          >
+                            <span className="font-bold">No.</span> {selectedCertificate.target.bib || '-'}
+                          </div>
+                        )}
+                        {certVisibility.department && (
+                          <div
+                            onPointerDown={e => handleCertMouseDown('department', e)}
+                            style={{ transform: `translate(${certOffsets.department?.x || 0}px, ${certOffsets.department?.y || 0}px)`, fontSize: `${certFontSizes.department}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
+                            className="bg-slate-50 px-3 py-1.5 rounded border border-slate-200 inline-block text-left"
+                          >
+                            <span className="font-bold">部門:</span> {certificateContent?.department || selectedCertificate.dept || '-'}
+                          </div>
+                        )}
+                        {certVisibility.event && (
+                          <div
+                            onPointerDown={e => handleCertMouseDown('event', e)}
+                            style={{ transform: `translate(${certOffsets.event?.x || 0}px, ${certOffsets.event?.y || 0}px)`, fontSize: `${certFontSizes.event}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
+                            className="bg-slate-50 px-3 py-1.5 rounded border border-slate-200 inline-block text-left"
+                          >
+                            <span className="font-bold">種目:</span> {certificateContent?.gender || selectedCertificate.gender} {certificateContent?.event || selectedCertificate.ev}
+                          </div>
+                        )}
+                        {certVisibility.rank && (
+                          <div
+                            onPointerDown={e => handleCertMouseDown('rank', e)}
+                            style={{ transform: `translate(${certOffsets.rank?.x || 0}px, ${certOffsets.rank?.y || 0}px)`, fontSize: `${certFontSizes.rank}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
+                            className="bg-slate-50 px-3 py-1.5 rounded border border-slate-200 inline-block text-left"
+                          >
+                            <span className="font-bold">順位:</span> 第 {certificateContent?.rank || selectedCertificate.result.rank} 位
+                          </div>
+                        )}
+                        {certVisibility.time && (
+                          <div
+                            onPointerDown={e => handleCertMouseDown('time', e)}
+                            style={{ transform: `translate(${certOffsets.time?.x || 0}px, ${certOffsets.time?.y || 0}px)`, fontSize: `${certFontSizes.time}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
+                            className="bg-slate-50 px-3 py-1.5 rounded border border-slate-200 inline-block text-left"
+                          >
+                            <span className="font-bold">記録:</span> {formatCertificateRecord(certificateContent?.time || selectedCertificate.result.time, certificateContent?.event || selectedCertificate.ev)}
                           </div>
                         )}
                       </div>
-                      <p className="text-xs text-slate-600 leading-relaxed whitespace-pre-line">
-                        {certificateContent?.body || 'あなたは第35回市民陸上競技大会において\n下記の通り優秀な成績を収められましたのでこれを賞します。'}
-                      </p>
-                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 inline-block text-left text-xs font-mono">
-                        <p><span className="font-bold">ID / ゼッケン:</span> No. {selectedCertificate.target.bib || '-'}</p>
-                        <p><span className="font-bold">部門:</span> {certificateContent?.department || selectedCertificate.dept || '-'}</p>
-                        <p><span className="font-bold">種目:</span> {certificateContent?.gender || selectedCertificate.gender} {certificateContent?.event || selectedCertificate.ev}</p>
-                        <p><span className="font-bold">順位:</span> 第 {certificateContent?.rank || selectedCertificate.result.rank} 位</p>
-                        <p><span className="font-bold">記録:</span> {certificateContent?.time || selectedCertificate.result.time} {isFieldEvent(certificateContent?.event || selectedCertificate.ev) ? 'm' : ''}</p>
-                      </div>
-                      <div className="text-xs text-slate-500 pt-4">
-                        <p>{certificateContent?.date || '2026年 10月 15日'}</p>
-                        <p className="font-bold text-slate-800 mt-1">{certificateContent?.issuer || '陸上競技大会実行委員会 会長'}</p>
-                      </div>
+
+                      {certVisibility.date && (
+                        <div
+                          onPointerDown={e => handleCertMouseDown('date', e)}
+                          style={{ transform: `translate(${certOffsets.date?.x || 0}px, ${certOffsets.date?.y || 0}px)`, fontSize: `${certFontSizes.date}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
+                          className="text-slate-500 pt-4 inline-block"
+                        >
+                          {certificateContent?.date || '2026年 10月 15日'}
+                        </div>
+                      )}
+                      {certVisibility.issuer && (
+                        <div
+                          onPointerDown={e => handleCertMouseDown('issuer', e)}
+                          style={{ transform: `translate(${certOffsets.issuer?.x || 0}px, ${certOffsets.issuer?.y || 0}px)`, fontSize: `${certFontSizes.issuer}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
+                          className="font-bold text-slate-800 mt-1 inline-block"
+                        >
+                          {certificateContent?.issuer || '陸上競技大会実行委員会 会長'}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex justify-center mt-5 print:hidden">
+                      <button
+                        type="button"
+                        onClick={() => document.getElementById('certificate-target-list')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                        className="px-5 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs transition-colors shadow-sm"
+                      >
+                        対象選択位置へ戻る
+                      </button>
+                    </div>
                     </div>
                   </div>
                 )}
