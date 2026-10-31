@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import { entryId, hasEntryId, isSameEntryId, removeDeletedEntryReferences } from './src/entryDeletion.mjs';
 import { 
   Trophy, Users, LayoutList, FileEdit, Printer, Radio,
   Search, CheckCircle, Shuffle, Upload, LogOut, Lock, Shield, AlertTriangle,
@@ -456,7 +457,6 @@ export default function App() {
   const [adminUsers, setAdminUsers] = useState([]);
   const [adminUsersMessage, setAdminUsersMessage] = useState('');
   const [authError, setAuthError] = useState('');
-  const deleteSaveInProgress = useRef(false);
   const entrySaveInProgress = useRef(false);
   const stateSaveQueueRef = useRef(Promise.resolve());
   const pendingStateSaveTimerRef = useRef(null);
@@ -882,7 +882,9 @@ export default function App() {
     if (!isStorageHydrated) return;
     const state = { individualEntries, relayTeams, draws, results, timetableConfig, timetableRows };
     try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (error) { console.warn('ローカル保存に失敗しました。', error); }
-    if (!user || !authToken) return;
+    // エントリーの確定保存中は、削除前のスナップショットを自動保存キューへ追加しない。
+    // 完了時の state 更新で、最新状態だけをあらためて保存する。
+    if (!user || !authToken || entrySaveInProgress.current) return;
     cancelPendingStateSave();
     const timer = window.setTimeout(() => {
       if (pendingStateSaveTimerRef.current === timer) pendingStateSaveTimerRef.current = null;
@@ -1037,40 +1039,17 @@ export default function App() {
     return next;
   };
 
-  const buildMeetStateAfterEntryDeletion = (entries) => {
-    const removedIds = new Set(entries.map(entry => String(entry.id)));
-    const nextDraws = { ...draws };
-    Object.entries(draws).forEach(([key, races]) => {
-      if (!Array.isArray(races)) return;
-      let drawChanged = false;
-      const remainingRaces = races.map(race => {
-        const lanes = Array.isArray(race.lanes) ? race.lanes : [];
-        const remainingLanes = lanes.filter(item => !removedIds.has(String(item?.athlete?.id)));
-        if (remainingLanes.length === lanes.length) return race;
-        drawChanged = true;
-        return remainingLanes.length ? { ...race, lanes: remainingLanes } : null;
-      }).filter(Boolean);
-      if (!drawChanged) return;
-      if (remainingRaces.length) nextDraws[key] = remainingRaces;
-      else delete nextDraws[key];
-    });
-
-    const nextResults = { ...results };
-    Object.entries(results).forEach(([raceKey, raceResults]) => {
-      if (!Array.isArray(raceResults)) return;
-      const remainingResults = raceResults.filter(result => !removedIds.has(String(result?.athleteId)));
-      if (remainingResults.length === raceResults.length) return;
-      if (remainingResults.length) nextResults[raceKey] = remainingResults;
-      else delete nextResults[raceKey];
-    });
-    return { draws: nextDraws, results: nextResults };
-  };
-
-  const persistEntryDeletion = async (entries, nextIndividuals, nextRelays) => {
-    if (deleteSaveInProgress.current || !entries.length) return false;
-    deleteSaveInProgress.current = true;
+  const persistEntryDeletion = async (entries, nextIndividuals, nextRelays, entryType) => {
+    if (entrySaveInProgress.current || !entries.length) return false;
+    entrySaveInProgress.current = true;
+    setIsEntrySaving(true);
     try {
-      const { draws: nextDraws, results: nextResults } = buildMeetStateAfterEntryDeletion(entries);
+      const { draws: nextDraws, results: nextResults } = removeDeletedEntryReferences({
+        entries,
+        entryType,
+        draws,
+        results
+      });
       if (!user || !authToken) throw new Error('admin_session_required');
       const nextState = {
         individualEntries: nextIndividuals,
@@ -1094,7 +1073,8 @@ export default function App() {
       alert('削除内容をサーバーに保存できなかったため、削除を確定できませんでした。通信状態を確認して、もう一度お試しください。');
       return false;
     } finally {
-      deleteSaveInProgress.current = false;
+      entrySaveInProgress.current = false;
+      setIsEntrySaving(false);
     }
   };
 
@@ -1340,8 +1320,8 @@ export default function App() {
   };
 
   const handleExportSelectedEntriesCsv = () => {
-    const selectedIndividuals = individualEntries.filter(entry => selectedIndividualIds.includes(entry.id));
-    const selectedRelays = relayTeams.filter(team => selectedRelayIds.includes(team.id));
+    const selectedIndividuals = individualEntries.filter(entry => hasEntryId(selectedIndividualIds, entry.id));
+    const selectedRelays = relayTeams.filter(team => hasEntryId(selectedRelayIds, team.id));
     const selectedEntries = [
       ...selectedIndividuals.map(entry => ({ type: '個人', id: entry.bib, name: entry.name, affiliation: entry.affiliation, department: entry.department, gender: entry.gender, event: entry.event, record: entry.pb, order: {} })),
       ...selectedRelays.map(team => ({ type: 'リレー', id: team.teamId, name: team.teamName, affiliation: team.affiliation, department: team.department, gender: team.gender, event: team.event, record: team.pb, order: isEkidenEvent(team.event) ? (team.roster || {}) : (team.order || {}) }))
@@ -1367,44 +1347,44 @@ export default function App() {
 
   const handleDeleteIndividual = async (id) => {
     if (!window.confirm('この選手エントリーを削除しますか？')) return;
-    const deletedEntry = individualEntries.find(entry => entry.id === id);
+    const deletedEntry = individualEntries.find(entry => isSameEntryId(entry.id, id));
     if (!deletedEntry) return;
-    const nextIndividuals = individualEntries.filter(entry => entry.id !== id);
-    if (await persistEntryDeletion([deletedEntry], nextIndividuals, relayTeams)) {
-      setSelectedIndividualIds(prev => prev.filter(selectedId => selectedId !== id));
+    const nextIndividuals = individualEntries.filter(entry => !isSameEntryId(entry.id, id));
+    if (await persistEntryDeletion([deletedEntry], nextIndividuals, relayTeams, 'individual')) {
+      setSelectedIndividualIds(prev => prev.filter(selectedId => !isSameEntryId(selectedId, id)));
     }
   };
 
   const handleDeleteRelay = async (id) => {
     if (!window.confirm('このリレーチームエントリーを削除しますか？')) return;
-    const deletedTeam = relayTeams.find(team => team.id === id);
+    const deletedTeam = relayTeams.find(team => isSameEntryId(team.id, id));
     if (!deletedTeam) return;
-    const nextRelays = relayTeams.filter(team => team.id !== id);
-    if (await persistEntryDeletion([deletedTeam], individualEntries, nextRelays)) {
-      setSelectedRelayIds(prev => prev.filter(selectedId => selectedId !== id));
+    const nextRelays = relayTeams.filter(team => !isSameEntryId(team.id, id));
+    if (await persistEntryDeletion([deletedTeam], individualEntries, nextRelays, 'relay')) {
+      setSelectedRelayIds(prev => prev.filter(selectedId => !isSameEntryId(selectedId, id)));
     }
   };
 
   const handleBulkDeleteIndividuals = async () => {
     if (!selectedIndividualIds.length) return;
     if (!window.confirm(`選択した${selectedIndividualIds.length}件の個人エントリーを削除しますか？この操作は元に戻せません。`)) return;
-    const selected = individualEntries.filter(entry => selectedIndividualIds.includes(entry.id));
-    const nextIndividuals = individualEntries.filter(entry => !selectedIndividualIds.includes(entry.id));
-    if (await persistEntryDeletion(selected, nextIndividuals, relayTeams)) setSelectedIndividualIds([]);
+    const selected = individualEntries.filter(entry => hasEntryId(selectedIndividualIds, entry.id));
+    const nextIndividuals = individualEntries.filter(entry => !hasEntryId(selectedIndividualIds, entry.id));
+    if (await persistEntryDeletion(selected, nextIndividuals, relayTeams, 'individual')) setSelectedIndividualIds([]);
   };
 
   const handleBulkDeleteRelays = async () => {
     if (!selectedRelayIds.length) return;
     if (!window.confirm(`選択した${selectedRelayIds.length}件のリレーチームを削除しますか？この操作は元に戻せません。`)) return;
-    const selected = relayTeams.filter(team => selectedRelayIds.includes(team.id));
-    const nextRelays = relayTeams.filter(team => !selectedRelayIds.includes(team.id));
-    if (await persistEntryDeletion(selected, individualEntries, nextRelays)) setSelectedRelayIds([]);
+    const selected = relayTeams.filter(team => hasEntryId(selectedRelayIds, team.id));
+    const nextRelays = relayTeams.filter(team => !hasEntryId(selectedRelayIds, team.id));
+    if (await persistEntryDeletion(selected, individualEntries, nextRelays, 'relay')) setSelectedRelayIds([]);
   };
 
   const findEntryById = (id) => {
-    const ind = individualEntries.find(e => e.id === id);
+    const ind = individualEntries.find(e => isSameEntryId(e.id, id));
     if (ind) return { ...ind, isRelay: false };
-    const relay = relayTeams.find(t => t.id === id);
+    const relay = relayTeams.find(t => isSameEntryId(t.id, id));
     if (relay) return { ...relay, bib: relay.teamId, name: relay.teamName, isRelay: true };
     return null;
   };
@@ -2260,8 +2240,10 @@ export default function App() {
         ) : (
           <>
             {['entries', 'draws', 'results'].includes(activeTab) && (
-              <p className="mb-3 text-right text-[11px] text-slate-400">
-                エントリー削除後、プログラム編成・競技結果入力の表示が更新されない場合は、画面を更新してください。
+              <p className={`mb-3 text-right text-[11px] ${isEntrySaving ? 'font-bold text-indigo-600' : 'text-slate-400'}`} aria-live="polite">
+                {isEntrySaving
+                  ? 'エントリーをサーバーに保存しています。完了するまで追加・編集・削除はできません。'
+                  : 'エントリー削除後、プログラム編成・競技結果入力も自動的に更新されます。'}
               </p>
             )}
             {activeTab === 'timetable' && (
@@ -2474,12 +2456,12 @@ export default function App() {
                             className="w-full sm:w-64 min-h-11 px-3 py-2 border border-slate-200 rounded-lg text-base md:text-xs"
                           />
                         </div>
-                        <div className="flex flex-wrap items-center gap-2"><span className="text-xs text-slate-500 font-semibold">全 {individualEntries.length} 名</span><button type="button" onClick={handleBulkDeleteIndividuals} disabled={!selectedIndividualIds.length} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg text-xs font-bold">選択した個人を一括削除 ({selectedIndividualIds.length})</button></div>
+                        <div className="flex flex-wrap items-center gap-2"><span className="text-xs text-slate-500 font-semibold">全 {individualEntries.length} 名</span><button type="button" onClick={handleBulkDeleteIndividuals} disabled={isEntrySaving || !selectedIndividualIds.length} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg text-xs font-bold">{isEntrySaving ? 'サーバー保存中…' : `選択した個人を一括削除 (${selectedIndividualIds.length})`}</button></div>
                       </div>
                       <div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表は左右にスワイプして全列を確認できます</div><div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}><table className="min-w-[960px] w-full text-left text-xs border-collapse">
                         <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
                           <tr>
-                            <th className="p-3 font-bold w-10 text-center"><input type="checkbox" aria-label="個人エントリーを全選択" checked={individualEntries.length > 0 && selectedIndividualIds.length === individualEntries.length} onChange={event => setSelectedIndividualIds(event.target.checked ? individualEntries.map(entry => entry.id) : [])} /></th>
+                            <th className="p-3 font-bold w-10 text-center"><input type="checkbox" aria-label="個人エントリーを全選択" disabled={isEntrySaving} checked={individualEntries.length > 0 && individualEntries.every(entry => hasEntryId(selectedIndividualIds, entry.id))} onChange={event => setSelectedIndividualIds(event.target.checked ? individualEntries.map(entry => entryId(entry.id)) : [])} /></th>
                             <th className="p-3 font-bold w-16 text-center">ゼッケン</th>
                             <th className="p-3 font-bold">氏名</th>
                             <th className="p-3 font-bold">所属団体</th>
@@ -2495,7 +2477,7 @@ export default function App() {
                             .filter(e => e.name.includes(searchTerm) || e.affiliation.includes(searchTerm) || e.bib.includes(searchTerm))
                             .map(entry => (
                               <tr key={entry.id} className="hover:bg-slate-50/80">
-                                <td className="p-3 text-center"><input type="checkbox" aria-label={`${entry.name}を選択`} checked={selectedIndividualIds.includes(entry.id)} onChange={event => setSelectedIndividualIds(prev => event.target.checked ? [...prev, entry.id] : prev.filter(id => id !== entry.id))} /></td>
+                                <td className="p-3 text-center"><input type="checkbox" aria-label={`${entry.name}を選択`} disabled={isEntrySaving} checked={hasEntryId(selectedIndividualIds, entry.id)} onChange={event => setSelectedIndividualIds(prev => event.target.checked ? (hasEntryId(prev, entry.id) ? prev : [...prev, entryId(entry.id)]) : prev.filter(id => !isSameEntryId(id, entry.id)))} /></td>
                                 <td className="p-3 text-center font-mono font-bold text-indigo-600">{entry.bib || '-'}</td>
                                 <td className="p-3 font-bold text-slate-800">{entry.name}</td>
                                 <td className="p-3 text-slate-600">{entry.affiliation}</td>
@@ -2504,8 +2486,8 @@ export default function App() {
                                 <td className="p-3 text-indigo-600 font-bold">{entry.event}</td>
                                 <td className="p-3 text-slate-600 font-mono">{entry.pb || '-'}</td>
                                 <td className="p-3 text-right space-x-1">
-                                  <button type="button" aria-label={`${entry.name}を編集`} onClick={() => handleStartEditIndividual(entry)} className="text-amber-600 hover:text-amber-800 p-1"><Edit3 size={14} /></button>
-                                  <button type="button" aria-label={`${entry.name}を削除`} onClick={() => handleDeleteIndividual(entry.id)} className="text-rose-500 hover:text-rose-700 p-1"><Trash2 size={14} /></button>
+                                  <button type="button" aria-label={`${entry.name}を編集`} disabled={isEntrySaving} onClick={() => handleStartEditIndividual(entry)} className="text-amber-600 hover:text-amber-800 disabled:text-slate-300 p-1"><Edit3 size={14} /></button>
+                                  <button type="button" aria-label={`${entry.name}を削除`} disabled={isEntrySaving} onClick={() => handleDeleteIndividual(entry.id)} className="text-rose-500 hover:text-rose-700 disabled:text-slate-300 p-1"><Trash2 size={14} /></button>
                                 </td>
                               </tr>
                             ))}
@@ -2634,12 +2616,12 @@ export default function App() {
                             className="w-full sm:w-64 min-h-11 px-3 py-2 border border-slate-200 rounded-lg text-base md:text-xs"
                           />
                         </div>
-                        <div className="flex flex-wrap items-center gap-2"><span className="text-xs text-slate-500 font-semibold">全 {relayTeams.length} チーム</span><button type="button" onClick={handleBulkDeleteRelays} disabled={!selectedRelayIds.length} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg text-xs font-bold">選択したリレーを一括削除 ({selectedRelayIds.length})</button></div>
+                        <div className="flex flex-wrap items-center gap-2"><span className="text-xs text-slate-500 font-semibold">全 {relayTeams.length} チーム</span><button type="button" onClick={handleBulkDeleteRelays} disabled={isEntrySaving || !selectedRelayIds.length} className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-slate-200 disabled:text-slate-400 text-white rounded-lg text-xs font-bold">{isEntrySaving ? 'サーバー保存中…' : `選択したリレーを一括削除 (${selectedRelayIds.length})`}</button></div>
                       </div>
                       <div className="md:hidden px-3 py-2 bg-indigo-50 text-indigo-800 text-xs font-bold">表は左右にスワイプして全列を確認できます</div><div className="overflow-x-auto overscroll-x-contain" style={{ WebkitOverflowScrolling: 'touch', touchAction: 'pan-x pan-y' }}><table className="min-w-[1100px] w-full text-left text-xs border-collapse">
                         <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
                           <tr>
-                            <th className="p-3 font-bold w-10 text-center"><input type="checkbox" aria-label="リレーを全選択" checked={relayTeams.length > 0 && selectedRelayIds.length === relayTeams.length} onChange={event => setSelectedRelayIds(event.target.checked ? relayTeams.map(team => team.id) : [])} /></th>
+                            <th className="p-3 font-bold w-10 text-center"><input type="checkbox" aria-label="リレーを全選択" disabled={isEntrySaving} checked={relayTeams.length > 0 && relayTeams.every(team => hasEntryId(selectedRelayIds, team.id))} onChange={event => setSelectedRelayIds(event.target.checked ? relayTeams.map(team => entryId(team.id)) : [])} /></th>
                             <th className="p-3 font-bold w-16 text-center">ID</th>
                             <th className="p-3 font-bold">チーム名</th>
                             <th className="p-3 font-bold">所属団体</th>
@@ -2659,7 +2641,7 @@ export default function App() {
                               const roster = team.roster || {};
                               return (
                                 <tr key={team.id} className="hover:bg-slate-50/80">
-                                  <td className="p-3 text-center"><input type="checkbox" aria-label={`${team.teamName}を選択`} checked={selectedRelayIds.includes(team.id)} onChange={event => setSelectedRelayIds(prev => event.target.checked ? [...prev, team.id] : prev.filter(id => id !== team.id))} /></td>
+                                  <td className="p-3 text-center"><input type="checkbox" aria-label={`${team.teamName}を選択`} disabled={isEntrySaving} checked={hasEntryId(selectedRelayIds, team.id)} onChange={event => setSelectedRelayIds(prev => event.target.checked ? (hasEntryId(prev, team.id) ? prev : [...prev, entryId(team.id)]) : prev.filter(id => !isSameEntryId(id, team.id)))} /></td>
                                   <td className="p-3 text-center font-mono font-bold text-indigo-600">{team.teamId || '-'}</td>
                                   <td className="p-3 font-bold text-slate-800">{team.teamName}</td>
                                   <td className="p-3 text-slate-600">{team.affiliation}</td>
@@ -2685,13 +2667,15 @@ export default function App() {
                                   </td>
                                   <td className="p-3 text-right space-x-1">
                                     <button
+                                      type="button"
+                                      disabled={isEntrySaving}
                                       onClick={() => setEditingTeamForOrder({ ...team })}
-                                      className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded text-[11px] transition-colors border border-indigo-200"
+                                      className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 disabled:bg-slate-100 disabled:text-slate-400 text-indigo-700 font-bold rounded text-[11px] transition-colors border border-indigo-200"
                                     >
                                       オーダー設定
                                     </button>
-                                    <button type="button" aria-label={`${team.teamName}を編集`} onClick={() => handleStartEditRelay(team)} className="text-amber-600 hover:text-amber-800 p-1"><Edit3 size={14} /></button>
-                                    <button type="button" aria-label={`${team.teamName}を削除`} onClick={() => handleDeleteRelay(team.id)} className="text-rose-500 hover:text-rose-700 p-1"><Trash2 size={14} /></button>
+                                    <button type="button" aria-label={`${team.teamName}を編集`} disabled={isEntrySaving} onClick={() => handleStartEditRelay(team)} className="text-amber-600 hover:text-amber-800 disabled:text-slate-300 p-1"><Edit3 size={14} /></button>
+                                    <button type="button" aria-label={`${team.teamName}を削除`} disabled={isEntrySaving} onClick={() => handleDeleteRelay(team.id)} className="text-rose-500 hover:text-rose-700 disabled:text-slate-300 p-1"><Trash2 size={14} /></button>
                                   </td>
                                 </tr>
                               );
