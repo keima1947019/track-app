@@ -1771,49 +1771,6 @@ export default function App() {
     window.print();
   };
 
-  const handleExportCertificateWord = () => {
-    if (!selectedCertificate) {
-      alert('先に発行対象の選手またはチームを選択してください。');
-      return;
-    }
-    const content = certificateContent || {};
-    const event = content.event || selectedCertificate.ev || '';
-    const record = formatCertificateRecord(content.time || selectedCertificate.result?.time, event);
-    const rows = [];
-    const addRow = (key, label, value) => {
-      if (certVisibility[key] && value !== undefined && value !== null && value !== '') rows.push(`<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(String(value)).replace(/\n/g, '<br>')}</td></tr>`);
-    };
-    addRow('name', '宛名', `${content.name || selectedCertificate.target.name} 殿`);
-    addRow('affiliation', '所属', content.affiliation || selectedCertificate.target.affiliation);
-    if (selectedCertificate.target.isRelay && certVisibility.relayOrder) {
-      addRow('relayOrder', 'リレー走者', `1走 ${selectedCertificate.target.order?.r1 || '-'} / 2走 ${selectedCertificate.target.order?.r2 || '-'} / 3走 ${selectedCertificate.target.order?.r3 || '-'} / 4走 ${selectedCertificate.target.order?.r4 || '-'}`);
-    }
-    addRow('bib', 'No.', selectedCertificate.target.bib || '-');
-    addRow('department', '部門', content.department || selectedCertificate.dept || '-');
-    addRow('event', '種目', `${content.gender || selectedCertificate.gender || ''} ${event}`.trim());
-    addRow('rank', '順位', `第 ${content.rank || selectedCertificate.result?.rank || '-'} 位`);
-    addRow('time', '記録', record);
-    const title = content.title || '賞 状';
-    const body = content.body || 'あなたは第35回市民陸上競技大会において\n下記の通り優秀な成績を収められましたのでこれを賞します。';
-    const date = certVisibility.date ? (content.date || '2026年 10月 15日') : '';
-    const issuer = certVisibility.issuer ? (content.issuer || '陸上競技大会実行委員会 会長') : '';
-    const paperWidth = Number(certificatePaperSize.width) || 210;
-    const paperHeight = Number(certificatePaperSize.height) || 297;
-    const html = `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>
-      @page{size:${paperWidth}mm ${paperHeight}mm;margin:12mm}body{font-family:Arial,"Noto Sans JP",sans-serif;color:#111;margin:0}main{width:100%;min-height:${Math.max(50, paperHeight - 24)}mm;text-align:center}h1{font-size:${Number(certFontSizes.title) || 28}px;margin:0 0 22px;padding-bottom:10px;border-bottom:2px solid #111;letter-spacing:.25em}p{white-space:pre-line;line-height:1.8}.body{font-size:${Number(certFontSizes.body) || 14}px;margin:22px 0}.certificate-table{width:100%;border-collapse:collapse;margin:18px auto;font-size:12px}.certificate-table th,.certificate-table td{border:1px solid #999;padding:8px;text-align:left}.certificate-table th{width:28%;background:#f3f4f6}.name{font-size:${Number(certFontSizes.name) || 18}px;font-weight:700;margin:16px 0}.footer{text-align:right;margin-top:30px;font-size:${Number(certFontSizes.date) || 12}px}.issuer{font-size:${Number(certFontSizes.issuer) || 12}px;font-weight:700;margin-top:8px}</style></head><body><main>`;
-    const tail = `</main></body></html>`;
-    const wordHtml = `${html}<h1>${escapeHtml(title)}</h1>${certVisibility.name ? `<div class="name">${escapeHtml(content.name || selectedCertificate.target.name)} 殿</div>` : ''}${certVisibility.body ? `<p class="body">${escapeHtml(body)}</p>` : ''}<table class="certificate-table"><tbody>${rows.join('')}</tbody></table><div class="footer">${escapeHtml(date)}${issuer ? `<div class="issuer">${escapeHtml(issuer)}</div>` : ''}</div>${tail}`;
-    const blob = new Blob([`\ufeff${wordHtml}`], { type: 'application/msword;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `賞状_${String(content.name || selectedCertificate.target.name || 'certificate').replace(/[\\/:*?"<>|\s]+/g, '_')}.doc`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
-  };
-
   const openPdfPrintWindow = (title, content, orientation = 'landscape') => {
     const popup = window.open('', '_blank', 'width=1200,height=850');
     if (!popup) {
@@ -3706,13 +3663,6 @@ export default function App() {
                       </button>
                       <button
                         type="button"
-                        onClick={handleExportCertificateWord}
-                        className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white font-bold rounded-xl text-xs hover:bg-blue-700 transition-colors shadow-sm"
-                      >
-                        <Download size={16} /> Word形式（.doc）
-                      </button>
-                      <button
-                        type="button"
                         onClick={() => setCertOffsets({})}
                         className="px-4 py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold rounded-xl text-xs transition-colors shadow-sm"
                       >
@@ -3810,6 +3760,7 @@ export default function App() {
                       <p className="mt-3 text-xs text-slate-500">用紙サイズはmm単位で指定できます。A4縦は210×297mm、A4横は297×210mmです。方眼の点線はレイアウト編集時の目安で、印刷には表示されません。</p>
                     </div>
                     <div
+                      data-certificate-paper="true"
                       className="relative bg-white p-12 rounded-2xl border border-slate-200 shadow-sm mx-auto text-center space-y-6 print:border-0 print:shadow-none print:m-0 print:p-8"
                       style={{ width: `${certificatePaperSize.width}mm`, minHeight: `${certificatePaperSize.height}mm`, maxWidth: '100%', boxSizing: 'border-box' }}
                     >
@@ -3830,7 +3781,7 @@ export default function App() {
                       {certVisibility.title && (
                         <div>
                           <h1
-                            onPointerDown={e => handleCertMouseDown('title', e)}
+                            data-certificate-placeholder="title" onPointerDown={e => handleCertMouseDown('title', e)}
                             style={{ transform: `translate(${certOffsets.title?.x || 0}px, ${certOffsets.title?.y || 0}px)`, fontSize: `${certFontSizes.title}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
                             className="text-2xl font-black tracking-widest text-slate-900 border-b-2 border-slate-800 pb-2 inline-block"
                           >
@@ -3842,7 +3793,7 @@ export default function App() {
                       {certVisibility.name && (
                         <div>
                           <div
-                            onPointerDown={e => handleCertMouseDown('name', e)}
+                            data-certificate-placeholder="name" onPointerDown={e => handleCertMouseDown('name', e)}
                             style={{ transform: `translate(${certOffsets.name?.x || 0}px, ${certOffsets.name?.y || 0}px)`, fontSize: `${certFontSizes.name}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
                             className="text-base text-slate-900 font-black inline-block"
                           >
@@ -3854,7 +3805,7 @@ export default function App() {
                       {certVisibility.affiliation && (
                         <div>
                           <div
-                            onPointerDown={e => handleCertMouseDown('affiliation', e)}
+                            data-certificate-placeholder="affiliation" onPointerDown={e => handleCertMouseDown('affiliation', e)}
                             style={{ transform: `translate(${certOffsets.affiliation?.x || 0}px, ${certOffsets.affiliation?.y || 0}px)`, fontSize: `${certFontSizes.affiliation}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
                             className="text-xs text-slate-500 inline-block"
                           >
@@ -3866,7 +3817,7 @@ export default function App() {
                       {selectedCertificate.target.isRelay && certVisibility.relayOrder && (
                         <div>
                           <div
-                            onPointerDown={e => handleCertMouseDown('relayOrder', e)}
+                            data-certificate-placeholder="relayOrder" onPointerDown={e => handleCertMouseDown('relayOrder', e)}
                             style={{ transform: `translate(${certOffsets.relayOrder?.x || 0}px, ${certOffsets.relayOrder?.y || 0}px)`, fontSize: `${certFontSizes.relayOrder}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
                             className="text-xs text-slate-600 mt-1 font-mono border-t border-b border-slate-200 py-1.5 inline-block px-4 bg-slate-50/50"
                           >
@@ -3878,7 +3829,7 @@ export default function App() {
                       {certVisibility.body && (
                         <div>
                           <p
-                            onPointerDown={e => handleCertMouseDown('body', e)}
+                            data-certificate-placeholder="body" onPointerDown={e => handleCertMouseDown('body', e)}
                             style={{ transform: `translate(${certOffsets.body?.x || 0}px, ${certOffsets.body?.y || 0}px)`, fontSize: `${certFontSizes.body}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
                             className="text-xs text-slate-600 leading-relaxed whitespace-pre-line inline-block"
                           >
@@ -3890,7 +3841,7 @@ export default function App() {
                       <div className="flex flex-wrap justify-center gap-2 text-xs font-mono">
                         {certVisibility.bib && (
                           <div
-                            onPointerDown={e => handleCertMouseDown('bib', e)}
+                            data-certificate-placeholder="bib" onPointerDown={e => handleCertMouseDown('bib', e)}
                             style={{ transform: `translate(${certOffsets.bib?.x || 0}px, ${certOffsets.bib?.y || 0}px)`, fontSize: `${certFontSizes.bib}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
                             className="bg-slate-50 px-3 py-1.5 rounded border border-slate-200 inline-block text-left"
                           >
@@ -3899,7 +3850,7 @@ export default function App() {
                         )}
                         {certVisibility.department && (
                           <div
-                            onPointerDown={e => handleCertMouseDown('department', e)}
+                            data-certificate-placeholder="department" onPointerDown={e => handleCertMouseDown('department', e)}
                             style={{ transform: `translate(${certOffsets.department?.x || 0}px, ${certOffsets.department?.y || 0}px)`, fontSize: `${certFontSizes.department}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
                             className="bg-slate-50 px-3 py-1.5 rounded border border-slate-200 inline-block text-left"
                           >
@@ -3908,7 +3859,7 @@ export default function App() {
                         )}
                         {certVisibility.event && (
                           <div
-                            onPointerDown={e => handleCertMouseDown('event', e)}
+                            data-certificate-placeholder="event" onPointerDown={e => handleCertMouseDown('event', e)}
                             style={{ transform: `translate(${certOffsets.event?.x || 0}px, ${certOffsets.event?.y || 0}px)`, fontSize: `${certFontSizes.event}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
                             className="bg-slate-50 px-3 py-1.5 rounded border border-slate-200 inline-block text-left"
                           >
@@ -3917,7 +3868,7 @@ export default function App() {
                         )}
                         {certVisibility.rank && (
                           <div
-                            onPointerDown={e => handleCertMouseDown('rank', e)}
+                            data-certificate-placeholder="rank" onPointerDown={e => handleCertMouseDown('rank', e)}
                             style={{ transform: `translate(${certOffsets.rank?.x || 0}px, ${certOffsets.rank?.y || 0}px)`, fontSize: `${certFontSizes.rank}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
                             className="bg-slate-50 px-3 py-1.5 rounded border border-slate-200 inline-block text-left"
                           >
@@ -3926,7 +3877,7 @@ export default function App() {
                         )}
                         {certVisibility.time && (
                           <div
-                            onPointerDown={e => handleCertMouseDown('time', e)}
+                            data-certificate-placeholder="time" onPointerDown={e => handleCertMouseDown('time', e)}
                             style={{ transform: `translate(${certOffsets.time?.x || 0}px, ${certOffsets.time?.y || 0}px)`, fontSize: `${certFontSizes.time}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
                             className="bg-slate-50 px-3 py-1.5 rounded border border-slate-200 inline-block text-left"
                           >
@@ -3937,7 +3888,7 @@ export default function App() {
 
                       {certVisibility.date && (
                         <div
-                          onPointerDown={e => handleCertMouseDown('date', e)}
+                          data-certificate-placeholder="date" onPointerDown={e => handleCertMouseDown('date', e)}
                           style={{ transform: `translate(${certOffsets.date?.x || 0}px, ${certOffsets.date?.y || 0}px)`, fontSize: `${certFontSizes.date}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
                           className="text-slate-500 pt-4 inline-block"
                         >
@@ -3946,7 +3897,7 @@ export default function App() {
                       )}
                       {certVisibility.issuer && (
                         <div
-                          onPointerDown={e => handleCertMouseDown('issuer', e)}
+                          data-certificate-placeholder="issuer" onPointerDown={e => handleCertMouseDown('issuer', e)}
                           style={{ transform: `translate(${certOffsets.issuer?.x || 0}px, ${certOffsets.issuer?.y || 0}px)`, fontSize: `${certFontSizes.issuer}px`, cursor: 'grab', touchAction: 'none', userSelect: 'none', position: 'relative' }}
                           className="font-bold text-slate-800 mt-1 inline-block"
                         >
